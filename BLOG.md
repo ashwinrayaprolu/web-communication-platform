@@ -1411,7 +1411,7 @@ Building a production-grade VoIP platform is a significant undertaking, but the 
 ## Resources
 
 ### Project Links
-- **GitHub Repository**: [Your Repo URL]
+- **GitHub Repository**: [https://github.com/ashwinrayaprolu/web-communication-platform/tree/main]
 - **Documentation**: [Docs URL]
 - **Demo Video**: [YouTube Link]
 - **Live Demo**: [Demo URL]
@@ -1435,17 +1435,17 @@ Building a production-grade VoIP platform is a significant undertaking, but the 
 - **Discord**: [Join our Discord]
 - **Forum**: [Community Forum]
 - **Twitter**: [@YourHandle]
-- **LinkedIn**: [Your Page]
+- **LinkedIn**: [https://www.linkedin.com/in/ashwinkumar/]
 
 ---
 
 ## About the Author
 
-[Your name/company] is a [description]. We specialize in building scalable, cloud-native telecommunications systems. This project represents months of research, development, and real-world testing.
+[Ashwin Rayaprolu] is a polygot tech geek. He specialize in building scalable, cloud-native, AI systems/infra and software. telecommunications systems is one of topics of interest. This project represents months of research, development, and real-world testing after trying multiple alternative options.
 
-**Contact**: [email]  
-**Website**: [website]  
-**Consulting**: Available for custom VoIP projects
+**Contact**: [ashwin@thoughtlane.com]  
+**Website**: [www.thoughtlane.com]  
+**Consulting**: Available for architectural consulting , startup mentoring, advising.
 
 ---
 
