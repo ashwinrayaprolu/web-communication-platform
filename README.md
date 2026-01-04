@@ -6,12 +6,14 @@ A complete, production-ready VoIP application stack with WebRTC support, IVR sys
 
 - **Multi-platform Support**: Works on Linux (amd64/arm64), macOS (Intel/Apple Silicon)
 - **Official Docker Images**: Uses pre-built images for RTPEngine and FreeSWITCH - no build required!
+- **Professional Audio**: Ringing tones, connection sounds, IVR prompts with TTS
+- **Text-to-Speech**: Chatterbox-Turbo for dynamic voice prompts
 - **WebRTC Integration**: Browser-based calling with SIP.js
 - **RTPEngine Media Proxy**: WebRTC ↔ RTP protocol conversion and media relay
   - Bridges browser WebRTC (SRTP) with FreeSWITCH RTP
   - Handles ICE, DTLS, and media encryption/decryption
   - Essential for browser-to-FreeSWITCH communication
-- **IVR System**: Multi-level interactive voice response menus
+- **IVR System**: Multi-level interactive voice response menus with audio feedback
 - **Agent Portal**: Real-time agent dashboard with call management
 - **Admin Dashboard**: Complete system monitoring and management
 - **Load Balancing**: Automatic distribution across multiple servers
@@ -27,6 +29,48 @@ A complete, production-ready VoIP application stack with WebRTC support, IVR sys
 - 8GB RAM minimum (16GB recommended)
 - 20GB disk space
 - Ports available: 80, 443, 5060, 5080-5081, 7880-7881, 8080, 50000-50100
+
+## ⚙️ Configuration
+
+### Default Credentials
+
+**Database** (PostgreSQL):
+- User: `voip_user`
+- Password: `voip_pass_2024`
+- Database: `voip_db`
+
+**Redis**:
+- Password: `redis_pass_2024`
+
+**LiveKit**:
+- API Key: `APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s` (32 chars - required minimum)
+- API Secret: `secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz` (48 chars)
+- **Note**: LiveKit requires keys to be at least 32 characters for security
+
+**PgAdmin**:
+- Email: `admin@voip.local`
+- Password: `admin123`
+
+**SIP Extensions**:
+- Extension: `6000`
+- Password: `test123`
+
+### Changing Credentials
+
+To change any credentials, update the following files:
+- `docker-compose.yaml` - Service environment variables
+- `.env.example` - Copy to `.env` and customize
+- `postgres/init.sql` - Database initialization
+- `livekit/livekit.yaml` - LiveKit keys
+
+**⚠️ Important**: For production use, generate secure random keys:
+```bash
+# Generate LiveKit API Key (32+ characters)
+openssl rand -base64 24 | tr -d /=+ | cut -c1-32
+
+# Generate LiveKit API Secret (32+ characters)
+openssl rand -base64 36 | tr -d /=+ | cut -c1-48
+```
 
 ## 🚀 Quick Start
 
@@ -571,9 +615,14 @@ For complete RTPEngine troubleshooting, see **RTPENGINE_TROUBLESHOOTING.md**
 ## 📚 Documentation
 
 - **README.md** - This file, complete setup and testing guide
-- **QUICK_FIXES.md** - **START HERE!** Solutions for common errors
+- **MAC_SETUP.md** - **Mac Users START HERE!** Apple Silicon & Intel setup guide
+- **DRACHTIO_QUICK_FIX.md** - **Having "invalid message" errors? Read this first!**
+- **QUICK_FIXES.md** - Solutions for common errors
+- **DRACHTIO_TROUBLESHOOTING.md** - Drachtio connection errors and version compatibility
+- **AUDIO_FEATURES.md** - Text-to-Speech, ringing tones, IVR audio prompts
+- **ENVIRONMENT_VARIABLES.md** - Complete reference for all environment variables and credentials
 - **UPGRADE_NOTES.md** - Latest changes: pre-built images, port updates
-- **SERVICE_CHECKLIST.md** - Complete inventory of all 15 services and configuration reference
+- **SERVICE_CHECKLIST.md** - Complete inventory of all 16 services and configuration reference
 - **FREESWITCH_DIALPLAN_EXPLAINED.md** - Why no XML dialplan needed (Drachtio controls FreeSWITCH)
 - **architecture.md** - Complete system architecture with diagrams
 - **MEDIA_FLOW_ARCHITECTURE.md** - Detailed WebRTC ↔ RTP media flow

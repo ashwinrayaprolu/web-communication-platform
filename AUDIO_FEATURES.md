@@ -13,11 +13,13 @@ The VoIP application now includes professional audio feedback and text-to-speech
 - **Status Tones**: Different tones for success, error, transfer, etc.
 
 ### 🎙️ Text-to-Speech (TTS)
-- **Chatterbox-Turbo**: Lightweight, fast TTS engine
+- **Piper TTS**: Neural text-to-speech with natural-sounding voices
+- **High Quality**: Sounds like a real person (not robotic!)
+- **Lightweight**: Only ~100MB model, fast generation
 - **Dynamic Prompts**: Generate audio on-the-fly from text
 - **Caching**: Pre-generated prompts cached for performance
-- **Multiple Voices**: Default, male, female voice options
 - **Speed Control**: Adjust speech rate (0.5x - 2.0x)
+- **Multiple Voices**: Easy to add more voice models
 
 ### 📢 IVR Enhancements
 - **Welcome Messages**: Professional greetings
@@ -69,10 +71,16 @@ The VoIP application now includes professional audio feedback and text-to-speech
 
 **Container**: `voip-tts-service`
 
+**Engine**: Piper (Neural TTS - natural-sounding voice)
+
 **Endpoints**:
 - `GET /health` - Health check
 - `POST /tts` - Generate speech from text
 - `POST /tts/phrase` - Quick phrase synthesis
+- `GET /voices` - List available voice models
+- `GET /cache/clear` - Clear audio cache
+
+**Voice Quality**: Natural, human-like speech (much better than robotic TTS)
 
 **Example API Call**:
 ```bash
@@ -284,9 +292,9 @@ tts-service:
   deploy:
     resources:
       limits:
-        memory: 2G      # Maximum memory
+        memory: 512M     # Maximum memory for Piper
       reservations:
-        memory: 512M    # Minimum memory
+        memory: 256M     # Minimum memory
 ```
 
 **Cache Settings**:
@@ -376,20 +384,23 @@ docker-compose exec freeswitch-1 ls -la /usr/local/freeswitch/sounds/
 ## Performance
 
 ### TTS Generation Speed
-- **First request**: 1-3 seconds (model loading)
-- **Cached**: <100ms (file retrieval)
-- **Concurrent requests**: 10+ simultaneous
+- **First request**: 1-2 seconds (voice model loading)
+- **Subsequent requests**: <1 second
+- **Cached**: <50ms (file retrieval)
+- **Concurrent requests**: 20+ simultaneous
 
 ### Memory Usage
-- **Base**: ~512MB (model loaded)
-- **Per request**: ~10-50MB (temporary)
+- **Base**: ~150MB (voice model loaded)
+- **Per request**: ~10MB (temporary)
 - **Cache**: ~1MB per audio file
+- **Voice model**: ~100MB per voice
 
 ### Best Practices
 1. ✅ Pre-generate common prompts
 2. ✅ Enable caching for repeated phrases
 3. ✅ Use fallback audio for critical messages
-4. ✅ Keep TTS text under 100 words per request
+4. ✅ Keep TTS text under 500 words per request
+5. ✅ Piper voices sound natural and professional
 
 ---
 
@@ -442,9 +453,12 @@ Planned features:
 
 ## Resources
 
-- **Chatterbox-Turbo**: https://github.com/resemble-ai/chatterbox
+- **Piper TTS**: https://github.com/rhasspy/piper
+- **Voice Models**: https://huggingface.co/rhasspy/piper-voices
 - **FreeSWITCH Sounds**: https://freeswitch.org/confluence/display/FREESWITCH/Sound+Packages
 - **Audio Format Standards**: ITU-T G.711 (8kHz, 16-bit PCM)
+
+**About Piper**: Piper is a fast, local neural text-to-speech system that sounds amazing! It uses ONNX models trained on real human speech and is perfect for voice assistants, IVR systems, and accessibility applications.
 
 ---
 

@@ -289,7 +289,58 @@ rtpengine:
 
 ---
 
-## Quick Recovery Commands
+## Error 11: LiveKit Secret Too Short
+
+### Error Message
+```
+ERROR livekit config/config.go:604 secret is too short, should be at least 32 characters for security
+```
+
+### Cause
+LiveKit requires API keys and secrets to be at least 32 characters long for security
+
+### Fix
+✅ **Already Fixed!** The LiveKit configuration now uses 32+ character keys
+
+### Configuration
+```yaml
+# livekit/livekit.yaml
+keys:
+  APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz
+  # ↑ 32 chars                       ↑ 48 chars
+```
+
+### Updating Environment Variables
+If you see this error, update these files:
+
+**docker-compose.yaml**:
+```yaml
+drachtio-app-1:
+  environment:
+    LIVEKIT_API_KEY: APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s
+    LIVEKIT_API_SECRET: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz
+```
+
+**livekit/livekit.yaml**:
+```yaml
+keys:
+  APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz
+```
+
+### Generating Your Own Keys
+For production, generate secure random keys:
+
+```bash
+# Generate API Key (32 characters)
+openssl rand -base64 24 | tr -d /=+ | cut -c1-32
+
+# Generate API Secret (48 characters)
+openssl rand -base64 36 | tr -d /=+ | cut -c1-48
+```
+
+Then update both files with your generated keys.
+
+---
 
 ### Complete Reset
 ```bash
@@ -409,3 +460,175 @@ docker-compose exec kamailio nc -zvu rtpengine 22222
 3. **Run test suite**: `./test.sh`
 4. **View logs**: `docker-compose logs -f`
 5. **Complete reset**: `docker-compose down -v && docker-compose up -d`
+
+---
+
+## Error 12: LiveKit Redis Connection - Missing Port
+
+### Error Message
+```
+connecting to redis {"addr": "redis"}
+redis: connection pool: failed to dial after 5 attempts: dial tcp: address redis: missing port in address
+unable to connect to redis: dial tcp: address redis: missing port in address
+```
+
+### Cause
+LiveKit environment variables override the config file. When `REDIS_HOST` is set without `REDIS_PORT` or as a separate variable, it causes connection failures.
+
+### Fix
+✅ **Already Fixed!** LiveKit now uses config file only (no environment variable overrides)
+
+**Solution: Remove conflicting environment variables and use config file only**
+
+**docker-compose.yaml** (correct):
+```yaml
+livekit:
+  command: --config /etc/livekit.yaml
+  # NO environment variables - config file only!
+  volumes:
+    - ./livekit/livekit.yaml:/etc/livekit.yaml
+```
+
+**livekit.yaml** (correct):
+```yaml
+redis:
+  address: redis:6379      # ✅ Complete address with port
+  password: redis_pass_2024
+  db: 0
+
+keys:
+  APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz
+```
+
+### Why Environment Variables Cause Issues
+
+LiveKit reads configuration in this order:
+1. Environment variables (highest priority) ← **This was the problem!**
+2. Config file (lower priority)
+
+When you set `REDIS_HOST=redis` as an environment variable, it overrides the config file's `address: redis:6379`, breaking the connection.
+
+**The solution**: Don't set Redis environment variables for LiveKit - let it read from the config file only.
+
+### Verification
+```bash
+# After starting LiveKit, check logs
+docker-compose logs livekit | grep redis
+
+# Should see:
+# INFO connecting to redis {"addr": "redis:6379"}  ✅
+# NOT: {"addr": "redis"}  ❌
+
+# Test Redis connection from LiveKit container
+docker-compose exec livekit nc -zv redis 6379
+# Should show: redis (172.x.x.x:6379) open
+```
+
+### If You Need Different Redis Settings
+
+Edit `livekit/livekit.yaml`:
+```yaml
+redis:
+  address: your-redis-host:6379
+  password: your-redis-password
+  db: 0
+```
+
+**Don't use environment variables** - they will override the config file!
+
+---
+
+## Error 13: Piper TTS Missing Shared Library
+
+### Error Message
+```
+piper: error while loading shared libraries: libpiper_phonemize.so.1: cannot open shared object file
+```
+
+### Cause
+Piper binary was moved without its shared library dependencies (`.so` files)
+
+### Fix
+✅ **Already Fixed!** Piper is now installed with all dependencies intact
+
+**Updated Dockerfile**:
+```dockerfile
+# Extract Piper with all libraries
+RUN mkdir -p /opt/piper && \
+    cd /opt/piper && \
+    tar -xzf piper_*.tar.gz
+    # Keeps entire piper/ directory with lib/ folder
+
+# Set library path
+ENV LD_LIBRARY_PATH="/opt/piper/piper/lib:${LD_LIBRARY_PATH}"
+```
+
+**Updated command**:
+```python
+# Use full path to piper binary
+cmd = ['/opt/piper/piper/piper', '--model', ...]
+```
+
+### Verification
+```bash
+# Check Piper can find its libraries
+docker-compose exec tts-service /opt/piper/piper/piper --version
+
+# Should show:
+# 1.2.0
+
+# Check library path
+docker-compose exec tts-service ldd /opt/piper/piper/piper | grep phonemize
+
+# Should show:
+# libpiper_phonemize.so.1 => /opt/piper/piper/lib/libpiper_phonemize.so.1
+```
+
+### If Still Failing
+
+1. **Rebuild TTS service**:
+   ```bash
+   docker-compose build --no-cache tts-service
+   docker-compose up -d tts-service
+   ```
+
+2. **Check library exists**:
+   ```bash
+   docker-compose exec tts-service ls -la /opt/piper/piper/lib/
+   
+   # Should show:
+   # libpiper_phonemize.so.1
+   # libonnxruntime.so.1.14.1
+   # libespeakng.so.1
+   ```
+
+3. **Check LD_LIBRARY_PATH**:
+   ```bash
+   docker-compose exec tts-service env | grep LD_LIBRARY_PATH
+   
+   # Should show:
+   # LD_LIBRARY_PATH=/opt/piper/piper/lib:
+   ```
+
+---
+
+## Complete Restart Procedure
+
+If you've updated configurations:
+
+```bash
+# 1. Stop all services
+docker-compose down
+
+# 2. Verify configuration
+cat livekit/livekit.yaml | grep -A 3 redis
+
+# 3. Start services
+docker-compose up -d
+
+# 4. Watch LiveKit startup
+docker-compose logs -f livekit
+
+# 5. Verify all services
+./test.sh
+```
