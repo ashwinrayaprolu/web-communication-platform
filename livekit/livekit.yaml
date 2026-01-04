@@ -1,0 +1,26 @@
+port: 7880
+bind_addresses:
+  - ""
+
+rtc:
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: false
+  tcp_port: 7881
+  
+redis:
+  address: redis:6379
+  password: redis_pass_2024
+  db: 0
+
+
+keys:
+  APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz
+
+logging:
+  level: info
+  
+room:
+  auto_create: true
+  empty_timeout: 300
+  max_participants: 100

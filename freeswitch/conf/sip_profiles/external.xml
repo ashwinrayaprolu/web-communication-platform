@@ -1,0 +1,34 @@
+<profile name="external">
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="sip-trace" value="no"/>
+    <param name="sip-capture" value="no"/>
+    <param name="rfc2833-pt" value="101"/>
+    <param name="sip-port" value="5062"/>
+    <param name="dialplan" value="XML"/>
+    <param name="context" value="public"/>
+    <param name="dtmf-duration" value="2000"/>
+    <param name="inbound-codec-prefs" value="OPUS,PCMU,PCMA"/>
+    <param name="outbound-codec-prefs" value="OPUS,PCMU,PCMA"/>
+    <param name="rtp-timer-name" value="soft"/>
+    <param name="local-network-acl" value="localnet.auto"/>
+    <param name="manage-presence" value="false"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+    <param name="tls" value="false"/>
+    <param name="nonce-ttl" value="60"/>
+    <param name="auth-calls" value="false"/>
+    <param name="inbound-late-negotiation" value="true"/>
+    <param name="inbound-zrtp-passthru" value="true"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="hold-music" value="$${hold_music}"/>
+    <param name="apply-nat-acl" value="nat.auto"/>
+    <param name="extended-info-parsing" value="true"/>
+    <param name="aggressive-nat-detection" value="true"/>
+    <param name="enable-timer" value="false"/>
+    <param name="enable-100rel" value="true"/>
+    <param name="minimum-session-expires" value="120"/>
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+  </settings>
+</profile>

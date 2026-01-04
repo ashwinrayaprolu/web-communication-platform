@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dSIPRouter - VoIP Management</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 { color: #333; margin-bottom: 30px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 { font-size: 14px; opacity: 0.9; margin-bottom: 10px; }
+        .stat-card .value { font-size: 36px; font-weight: bold; }
+        .section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .section h2 { color: #333; margin-bottom: 20px; font-size: 20px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #667eea; color: white; font-weight: 600; }
+        tr:hover { background: #f5f5f5; }
+        .status-online { color: #28a745; font-weight: bold; }
+        .status-offline { color: #dc3545; font-weight: bold; }
+        .status-busy { color: #ffc107; font-weight: bold; }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 dSIPRouter - VoIP Management Dashboard</h1>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Calls</h3>
+                <div class="value" id="totalCalls">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Active Calls</h3>
+                <div class="value" id="activeCalls">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Online Agents</h3>
+                <div class="value" id="onlineAgents">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Calls Today</h3>
+                <div class="value" id="callsToday">0</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📞 Recent Calls</h2>
+            <table id="callsTable">
+                <thead>
+                    <tr>
+                        <th>Call ID</th>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Status</th>
+                        <th>Start Time</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>👥 Agents</h2>
+            <table id="agentsTable">
+                <thead>
+                    <tr>
+                        <th>Extension</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Current Calls</th>
+                        <th>Total Calls</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStats() {
+            const res = await fetch('/api/stats');
+            const data = await res.json();
+            document.getElementById('totalCalls').textContent = data.total_calls;
+            document.getElementById('activeCalls').textContent = data.active_calls;
+            document.getElementById('onlineAgents').textContent = data.online_agents;
+            document.getElementById('callsToday').textContent = data.calls_today;
+        }
+
+        async function fetchCalls() {
+            const res = await fetch('/api/calls/recent?limit=10');
+            const calls = await res.json();
+            const tbody = document.querySelector('#callsTable tbody');
+            tbody.innerHTML = calls.map(call => `
+                <tr>
+                    <td>${call.call_id.substring(0, 20)}...</td>
+                    <td>${call.from}</td>
+                    <td>${call.to}</td>
+                    <td><span class="badge badge-${call.status === 'answered' ? 'success' : 'warning'}">${call.status}</span></td>
+                    <td>${new Date(call.start_time).toLocaleString()}</td>
+                    <td>${call.duration ? call.duration + 's' : 'N/A'}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function fetchAgents() {
+            const res = await fetch('/api/agents');
+            const agents = await res.json();
+            const tbody = document.querySelector('#agentsTable tbody');
+            tbody.innerHTML = agents.map(agent => `
+                <tr>
+                    <td>${agent.extension}</td>
+                    <td>${agent.name}</td>
+                    <td>${agent.email || 'N/A'}</td>
+                    <td><span class="status-${agent.status}">${agent.status.toUpperCase()}</span></td>
+                    <td>${agent.current_calls}</td>
+                    <td>${agent.total_calls}</td>
+                </tr>
+            `).join('');
+        }
+
+        function refresh() {
+            fetchStats();
+            fetchCalls();
+            fetchAgents();
+        }
+
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>

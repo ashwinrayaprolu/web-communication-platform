@@ -1,0 +1,7 @@
+# Dispatcher list for Drachtio servers
+# Format: setid destination flags priority attributes
+
+# Drachtio servers (setid 1)
+# Using DNS names instead of IPs
+1 sip:drachtio-1:5080 0 0
+1 sip:drachtio-2:5081 0 0

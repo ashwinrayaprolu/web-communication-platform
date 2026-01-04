@@ -1,0 +1,555 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    platform: linux/amd64
+    container_name: voip-postgres
+    environment:
+      POSTGRES_DB: voip_db
+      POSTGRES_USER: voip_user
+      POSTGRES_PASSWORD: voip_pass_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voip_user"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # PgAdmin for Database Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    platform: linux/amd64
+    container_name: voip-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@voip.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "5050:80"
+    networks:
+      - voip-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "nc -zv -w 5 localhost 80 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Redis for State Management
+  redis:
+    image: redis:7-alpine
+    platform: linux/amd64
+    container_name: voip-redis
+    command: redis-server --requirepass redis_pass_2024
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # RTPEngine Media Proxy
+  rtpengine:
+    image: drachtio/rtpengine:latest
+    platform: linux/amd64
+    container_name: voip-rtpengine
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    environment:
+      - LISTEN_NG=22222
+      - PORT_MIN=30000
+      - PORT_MAX=30100
+      - LOG_LEVEL=6
+    ports:
+      - "22222:22222/udp"
+      - "30000-30100:30000-30100/udp"
+    command: >
+      sh -c "
+      IP=$$(hostname -i | awk '{print $$1}');
+      rtpengine
+      --interface=$$IP
+      --listen-ng=0.0.0.0:22222
+      --port-min=30000
+      --port-max=30100
+      --log-level=6
+      --log-stderr
+      --foreground
+      "
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD-SHELL", "ss -ltunp 'sport = :22222' | grep -q '22222' || exit 1"]  # Checks SIP port listening
+      #test: ["CMD", "sh", "-c", "nc -zvu localhost 22222 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Kamailio SIP Server
+  kamailio:
+    build:
+      context: ./kamailio
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    container_name: voip-kamailio
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: voip_db
+      DB_USER: voip_user
+      DB_PASSWORD: voip_pass_2024
+      RTPENGINE_HOST: rtpengine
+      RTPENGINE_PORT: 22222
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "8080:8080/tcp"
+      - "4443:4443/tcp"
+    volumes:
+      - ./kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg
+      - ./kamailio/dispatcher.list:/etc/kamailio/dispatcher.list
+      - kamailio-data:/var/log/kamailio
+    networks:
+      - voip-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rtpengine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -zv -w 5 localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Drachtio Server 1
+  drachtio-1:
+    image: drachtio/drachtio-server:latest
+    platform: linux/amd64
+    container_name: voip-drachtio-1
+    command: drachtio --contact "sip:*:5080;transport=udp" --loglevel info
+    environment:
+      DRACHTIO_SECRET: cymru
+      SOFIA_LOGLEVEL: 3
+    ports:
+      - "5080:5080/udp"
+      - "5080:5080/tcp"
+      - "9022:9022/tcp"
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "timeout 5 bash -c 'echo > /dev/tcp/localhost/9022'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Drachtio Server 2
+  drachtio-2:
+    image: drachtio/drachtio-server:latest
+    platform: linux/amd64
+    container_name: voip-drachtio-2
+    command: drachtio --contact "sip:*:5081;transport=udp" --loglevel info
+    environment:
+      DRACHTIO_SECRET: cymru
+      SOFIA_LOGLEVEL: 3
+    ports:
+      - "5081:5081/udp"
+      - "5081:5081/tcp"
+      - "9023:9022/tcp"
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "timeout 5 bash -c 'echo > /dev/tcp/localhost/9022'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # FreeSWITCH Server 1
+  freeswitch-1:
+    image: drachtio/drachtio-freeswitch-mrf:latest
+    platform: linux/amd64
+    container_name: voip-freeswitch-1
+    hostname: freeswitch-1
+    environment:
+      - SOUNDS_VERSION=1.0.52
+      - SERVER_ID=1
+      - ESL_PASSWORD=JambonzR0ck$
+    ports:
+      - "5062:5060/udp"
+      - "5062:5060/tcp"
+      - "8021:8021/tcp"
+      - "16384-16583:16384-16583/udp"
+    volumes:
+    #  - ./freeswitch/conf:/usr/local/freeswitch/conf
+      - ./freeswitch/recordings:/usr/local/freeswitch/recordings
+      - ./freeswitch/storage:/usr/local/freeswitch/storage
+      - ./freeswitch/db-1:/usr/local/freeswitch/db
+      - ./freeswitch/logs-1:/usr/local/freeswitch/log
+      - tts-output:/app/output:ro  # ← FreeSWITCH reads from here      
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "timeout 5 bash -c 'echo > /dev/udp/localhost/5060'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # FreeSWITCH Server 2
+  freeswitch-2:
+    image: drachtio/drachtio-freeswitch-mrf:latest
+    platform: linux/amd64
+    container_name: voip-freeswitch-2
+    hostname: freeswitch-2
+    environment:
+      - SOUNDS_VERSION=1.0.52
+      - SERVER_ID=2
+      - ESL_PASSWORD=JambonzR0ck$
+    ports:
+      - "5063:5060/udp"
+      - "5063:5060/tcp"
+      - "8022:8021/tcp"
+      - "16584-16783:16384-16583/udp"
+    volumes:
+     # - ./freeswitch/conf:/usr/local/freeswitch/conf
+      - ./freeswitch/recordings:/usr/local/freeswitch/recordings
+      - ./freeswitch/storage:/usr/local/freeswitch/storage
+      - ./freeswitch/db-2:/usr/local/freeswitch/db
+      - ./freeswitch/logs-2:/usr/local/freeswitch/log
+      - tts-output:/app/output:ro  # ← FreeSWITCH reads from here      
+    networks:
+      - voip-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "timeout 5 bash -c 'echo > /dev/udp/localhost/5060'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # TTS Service (Chatterbox-Turbo)
+  tts-service:
+    build:
+      context: ./tts
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
+    container_name: voip-tts-service
+    ports:
+      - "8000:8000/tcp"
+    volumes:
+      - tts-cache:/app/cache
+      - tts-output:/app/output
+      - ./audio-prompts:/app/prompts:ro
+    networks:
+      - voip-network
+    environment:
+      - CACHE_SIZE=1000
+      - MAX_TEXT_LENGTH=500
+    healthcheck:
+      test: ["CMD", "nc", "-zv", "localhost", "8000"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M 
+
+  # Drachtio Node.js Application 1
+  drachtio-app-1:
+    build:
+      context: ./drachtio-apps/app-1
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: voip-drachtio-app-1
+    environment:
+      DRACHTIO_HOST: drachtio-1
+      DRACHTIO_PORT: 9022
+      DRACHTIO_SECRET: cymru
+      FREESWITCH_HOST: freeswitch-1
+      FREESWITCH_PORT: 8021
+      FREESWITCH_PASSWORD: JambonzR0ck$
+      TTS_SERVICE_URL: http://tts-service:8000
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: APIjqJzKvMmrEWU
+      LIVEKIT_API_SECRET: secretABCDEF123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_pass_2024
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: voip_db
+      DB_USER: voip_user
+      DB_PASSWORD: voip_pass_2024
+      NODE_ENV: production
+    networks:
+      - voip-network
+    depends_on:
+      drachtio-1:
+        condition: service_healthy
+      freeswitch-1:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ls -la"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Drachtio Node.js Application 2
+  drachtio-app-2:
+    build:
+      context: ./drachtio-apps/app-2
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: voip-drachtio-app-2
+    environment:
+      DRACHTIO_HOST: drachtio-2
+      DRACHTIO_PORT: 9022
+      DRACHTIO_SECRET: cymru
+      FREESWITCH_HOST: freeswitch-2
+      FREESWITCH_PORT: 8021
+      FREESWITCH_PASSWORD: JambonzR0ck$
+      TTS_SERVICE_URL: http://tts-service:8000
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: APIjqJzKvMmrEWU
+      LIVEKIT_API_SECRET: secretABCDEF123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_pass_2024
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: voip_db
+      DB_USER: voip_user
+      DB_PASSWORD: voip_pass_2024
+      NODE_ENV: production
+    networks:
+      - voip-network
+    depends_on:
+      drachtio-2:
+        condition: service_healthy
+      freeswitch-2:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ls -la"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # LiveKit Server
+  livekit:
+    image: livekit/livekit-server:latest
+    platform: linux/amd64
+    container_name: voip-livekit
+    command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "APIjqJzKvMmrEWU9x7pL2nK8fG4hT5s: secretABCDEF123456789GHIJKL0987654321MNOPQRuvwxyz"
+      REDIS_HOST: redis:6379
+      REDIS_PORT: "6379"
+      REDIS_ADDRESS: redis:6379
+      REDIS_PASSWORD: redis_pass_2024
+    ports:
+      - "7880:7880/tcp"
+      - "7881:7881/tcp"
+      - "50000-50100/udp"
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml
+    networks:
+      - voip-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -zv -w 5 localhost 7880 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # dSIPRouter
+  dsiprouter:
+    build:
+      context: ./dsiprouter
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    container_name: voip-dsiprouter
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: voip_db
+      DB_USER: voip_user
+      DB_PASSWORD: voip_pass_2024
+      KAMAILIO_HOST: kamailio
+      REDIS_HOST: redis
+      REDIS_PASSWORD: redis_pass_2024
+    ports:
+      - "5000"
+    networks:
+      - voip-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kamailio:
+        condition: service_healthy
+    healthcheck:
+      #test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/5000 && exec 3<&- || exit 1"]
+      test: ["CMD-SHELL", "[ -e /proc/net/tcp ] && grep -q ':1388 ' /proc/net/tcp || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Admin Dashboard
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    container_name: voip-admin-dashboard
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: voip_db
+      DB_USER: voip_user
+      DB_PASSWORD: voip_pass_2024
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_pass_2024
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: APIjqJzKvMmrEWU
+      LIVEKIT_API_SECRET: secretABCDEF123456
+      TTS_SERVICE_URL: http://tts-service:8000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    networks:
+      - voip-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "netstat -tulpn  | grep -q '3000' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    container_name: voip-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/html:/usr/share/nginx/html
+    networks:
+      - voip-network
+    depends_on:
+      admin-dashboard:
+        condition: service_healthy
+      dsiprouter:
+        condition: service_healthy
+      kamailio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl http://localhost/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+      start_interval: 5s
+    restart: unless-stopped
+
+networks:
+  voip-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  kamailio-data:
+    driver: local
+  tts-cache:
+    driver: local
+  tts-output:
+    driver: local

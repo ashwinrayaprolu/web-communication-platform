@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoIP Customer Portal</title>
+    <script src="./sip-0.21.2.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            color: #333;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .status {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: 600;
+        }
+        .status-disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-calling {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .call-controls {
+            display: none;
+            margin-top: 20px;
+        }
+        .call-controls.active {
+            display: block;
+        }
+        .dtmf-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .dtmf-btn {
+            padding: 15px;
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .dtmf-btn:hover {
+            background: #e9ecef;
+            transform: scale(1.05);
+        }
+        .dtmf-btn:active {
+            transform: scale(0.95);
+        }
+        .hidden { display: none; }
+        .call-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        .call-info p {
+            margin: 5px 0;
+            color: #333;
+        }
+        audio { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📞 VoIP Customer Portal</h1>
+        <p class="subtitle">Connect and make calls easily</p>
+
+        <div id="statusIndicator" class="status status-disconnected">
+            Disconnected
+        </div>
+
+        <div id="loginForm">
+            <div class="form-group">
+                <label for="extension">Extension</label>
+                <input type="text" id="extension" placeholder="e.g., 6000" value="6000">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password" value="test123">
+            </div>
+            <div class="form-group">
+                <label for="server">Server (WebSocket)</label>
+                <input type="text" id="server" value="ws://localhost/ws">
+            </div>
+            <button class="btn btn-primary" onclick="register()">Connect</button>
+        </div>
+
+        <div id="callForm" class="hidden">
+            <div class="form-group">
+                <label for="destination">Call To</label>
+                <select id="destination">
+                    <option value="6000">Extension 6000 (Direct)</option>
+                    <option value="9999">Extension 9999 (IVR)</option>
+                    <option value="5551234">555-1234 (LiveKit)</option>
+                </select>
+            </div>
+            <button class="btn btn-success" onclick="makeCall()">📞 Call</button>
+            <button class="btn btn-danger" onclick="disconnect()">Disconnect</button>
+        </div>
+
+        <div id="callControls" class="call-controls">
+            <div class="call-info">
+                <p><strong>Calling:</strong> <span id="callingNumber"></span></p>
+                <p><strong>Status:</strong> <span id="callStatus">Connecting...</span></p>
+            </div>
+
+            <div class="dtmf-pad">
+                <button class="dtmf-btn" onclick="sendDTMF('1')">1</button>
+                <button class="dtmf-btn" onclick="sendDTMF('2')">2</button>
+                <button class="dtmf-btn" onclick="sendDTMF('3')">3</button>
+                <button class="dtmf-btn" onclick="sendDTMF('4')">4</button>
+                <button class="dtmf-btn" onclick="sendDTMF('5')">5</button>
+                <button class="dtmf-btn" onclick="sendDTMF('6')">6</button>
+                <button class="dtmf-btn" onclick="sendDTMF('7')">7</button>
+                <button class="dtmf-btn" onclick="sendDTMF('8')">8</button>
+                <button class="dtmf-btn" onclick="sendDTMF('9')">9</button>
+                <button class="dtmf-btn" onclick="sendDTMF('*')">*</button>
+                <button class="dtmf-btn" onclick="sendDTMF('0')">0</button>
+                <button class="dtmf-btn" onclick="sendDTMF('#')">#</button>
+            </div>
+
+            <button class="btn btn-danger" onclick="hangup()">Hang Up</button>
+        </div>
+
+        <audio id="remoteAudio" autoplay></audio>
+        <audio id="localAudio" muted="muted"></audio>
+    </div>
+
+    <script>
+        let userAgent = null;
+        let session = null;
+        let registerer = null;
+
+        function updateStatus(message, type) {
+            const statusEl = document.getElementById('statusIndicator');
+            statusEl.textContent = message;
+            statusEl.className = `status status-${type}`;
+        }
+
+        async function register() {
+            const extension = document.getElementById('extension').value;
+            const password = document.getElementById('password').value;
+            const server = document.getElementById('server').value;
+
+            const uri = SIP.UserAgent.makeURI(`sip:${extension}@${window.location.hostname}`);
+            const transportOptions = {
+                server: server
+            };
+
+            const userAgentOptions = {
+                authorizationUsername: extension,
+                authorizationPassword: password,
+                transportOptions: transportOptions,
+                uri: uri,
+                logLevel: 'debug',
+                delegate: {
+                    onConnect: () => {
+                        console.log('Connected to server');
+                        updateStatus('Connected', 'connected');
+                        document.getElementById('loginForm').classList.add('hidden');
+                        document.getElementById('callForm').classList.remove('hidden');
+                    },
+                    onDisconnect: (error) => {
+                        console.log('Disconnected:', error);
+                        updateStatus('Disconnected', 'disconnected');
+                    }
+                }
+            };
+
+            userAgent = new SIP.UserAgent(userAgentOptions);
+
+            registerer = new SIP.Registerer(userAgent);
+
+            try {
+                await userAgent.start();
+                await registerer.register();
+                updateStatus('Registering...', 'calling');
+            } catch (error) {
+                console.error('Failed to register:', error);
+                updateStatus('Registration Failed', 'disconnected');
+                alert('Failed to connect: ' + error.message);
+            }
+        }
+
+        function makeCall() {
+            const destination = document.getElementById('destination').value;
+            const target = SIP.UserAgent.makeURI(`sip:${destination}@${window.location.hostname}`);
+
+            const inviter = new SIP.Inviter(userAgent, target);
+            session = inviter;
+
+            const remoteAudio = document.getElementById('remoteAudio');
+            const remoteStream = new MediaStream();
+            
+            session.stateChange.addListener((state) => {
+                console.log('Session state:', state);
+                document.getElementById('callStatus').textContent = state;
+                
+                if (state === SIP.SessionState.Established) {
+                    updateStatus('In Call', 'connected');
+                    document.getElementById('callControls').classList.add('active');
+                    document.getElementById('callForm').classList.add('hidden');
+                }
+                
+                if (state === SIP.SessionState.Terminated) {
+                    updateStatus('Call Ended', 'connected');
+                    document.getElementById('callControls').classList.remove('active');
+                    document.getElementById('callForm').classList.remove('hidden');
+                }
+            });
+
+            inviter.invite({
+                sessionDescriptionHandlerOptions: {
+                    constraints: {
+                        audio: true,
+                        video: false
+                    }
+                }
+            }).then(() => {
+                const pc = session.sessionDescriptionHandler.peerConnection;
+                
+                pc.getReceivers().forEach((receiver) => {
+                    if (receiver.track) {
+                        remoteStream.addTrack(receiver.track);
+                    }
+                });
+                
+                remoteAudio.srcObject = remoteStream;
+                remoteAudio.play();
+            }).catch((error) => {
+                console.error('Call failed:', error);
+                alert('Call failed: ' + error.message);
+            });
+
+            updateStatus('Calling...', 'calling');
+            document.getElementById('callingNumber').textContent = destination;
+        }
+
+        function sendDTMF(digit) {
+            if (session && session.state === SIP.SessionState.Established) {
+                session.sessionDescriptionHandler.sendDtmf(digit);
+                console.log('Sent DTMF:', digit);
+            }
+        }
+
+        function hangup() {
+            if (session) {
+                session.bye();
+                session = null;
+                updateStatus('Connected', 'connected');
+            }
+        }
+
+        function disconnect() {
+            if (registerer) {
+                registerer.unregister();
+            }
+            if (userAgent) {
+                userAgent.stop();
+            }
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('callForm').classList.add('hidden');
+            updateStatus('Disconnected', 'disconnected');
+        }
+    </script>
+</body>
+</html>

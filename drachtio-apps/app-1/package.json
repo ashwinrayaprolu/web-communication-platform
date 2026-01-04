@@ -1,0 +1,19 @@
+{
+  "name": "drachtio-app-1",
+  "version": "1.0.0",
+  "description": "Drachtio SIP Application 1 with LiveKit integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "drachtio-srf": "^5.0.15",
+    "drachtio-fsmrf": "^1.3.0",
+    "livekit-server-sdk": "^2.0.0",
+    "redis": "^4.6.0",
+    "pg": "^8.11.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0",
+    "axios": "^1.6.0"
+  }
+}

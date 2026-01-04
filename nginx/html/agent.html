@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Portal - VoIP System</title>
+    <script src="https://cdn.jsdelivr.net/npm/sip.js@0.21.2/dist/sip.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        .sidebar {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .main-content {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 600;
+        }
+        .status-offline { background: #f8d7da; color: #721c24; }
+        .status-online { background: #d4edda; color: #155724; }
+        .status-busy { background: #fff3cd; color: #856404; }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-card h3 {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        .calls-list {
+            margin-top: 20px;
+        }
+        .call-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .call-item .info {
+            flex: 1;
+        }
+        .call-item .info p {
+            margin: 3px 0;
+            font-size: 14px;
+        }
+        .call-item .actions button {
+            padding: 8px 16px;
+            margin-left: 5px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .hidden { display: none; }
+        h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+        audio { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>👨‍💼 Agent Portal</h1>
+    </div>
+
+    <div class="container">
+        <div class="grid">
+            <div class="sidebar">
+                <div id="agentStatus" class="status-indicator status-offline">
+                    Offline
+                </div>
+
+                <div id="loginSection">
+                    <div class="form-group">
+                        <label>Agent Extension</label>
+                        <input type="text" id="agentExtension" value="6001" placeholder="6001">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="agentPassword" value="test123">
+                    </div>
+                    <div class="form-group">
+                        <label>Server</label>
+                        <input type="text" id="server" value="ws://localhost/ws">
+                    </div>
+                    <button class="btn btn-primary" onclick="login()">Login</button>
+                </div>
+
+                <div id="statusSection" class="hidden">
+                    <div class="form-group">
+                        <label>Agent Status</label>
+                        <select id="statusSelect" onchange="changeStatus()">
+                            <option value="online">Online</option>
+                            <option value="busy">Busy</option>
+                            <option value="away">Away</option>
+                            <option value="offline">Offline</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-danger" onclick="logout()">Logout</button>
+                </div>
+
+                <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <h3 style="font-size: 14px; margin-bottom: 10px;">Agent Info</h3>
+                    <p style="font-size: 12px; color: #666;"><strong>Extension:</strong> <span id="agentExtInfo">-</span></p>
+                    <p style="font-size: 12px; color: #666;"><strong>Name:</strong> <span id="agentNameInfo">-</span></p>
+                    <p style="font-size: 12px; color: #666;"><strong>Total Calls:</strong> <span id="agentCallsInfo">0</span></p>
+                </div>
+            </div>
+
+            <div class="main-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Active Calls</h3>
+                        <div class="value" id="activeCalls">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Waiting Calls</h3>
+                        <div class="value" id="waitingCalls">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Calls Today</h3>
+                        <div class="value" id="callsToday">0</div>
+                    </div>
+                </div>
+
+                <h2>📞 Active Calls</h2>
+                <div id="activeCallsList" class="calls-list">
+                    <p style="color: #666; text-align: center; padding: 40px;">No active calls</p>
+                </div>
+
+                <h2 style="margin-top: 30px;">📋 Recent Calls</h2>
+                <div id="recentCallsList" class="calls-list">
+                    <p style="color: #666; text-align: center; padding: 40px;">No recent calls</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <audio id="remoteAudio" autoplay></audio>
+    <audio id="ringTone" loop>
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzGH0vPTgjMGHm7A7+OZSA0PVq3n77BdGAg+ltrywnETCShxy/LZizQGHWzA7+CbSQ0QVq3m77BdGAg+ltvywXETCShxyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh=" type="audio/wav">
+    </audio>
+
+    <script>
+        let userAgent = null;
+        let currentSession = null;
+        let agentExtension = null;
+
+        async function login() {
+            agentExtension = document.getElementById('agentExtension').value;
+            const password = document.getElementById('agentPassword').value;
+            const server = document.getElementById('server').value;
+
+            const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${window.location.hostname}`);
+            const transportOptions = { server: server };
+
+            const userAgentOptions = {
+                authorizationUsername: agentExtension,
+                authorizationPassword: password,
+                transportOptions: transportOptions,
+                uri: uri,
+                delegate: {
+                    onInvite: handleIncomingCall,
+                    onConnect: () => {
+                        updateAgentStatus('online');
+                        document.getElementById('loginSection').classList.add('hidden');
+                        document.getElementById('statusSection').classList.remove('hidden');
+                        loadAgentInfo();
+                    }
+                }
+            };
+
+            userAgent = new SIP.UserAgent(userAgentOptions);
+            const registerer = new SIP.Registerer(userAgent);
+
+            try {
+                await userAgent.start();
+                await registerer.register();
+            } catch (error) {
+                alert('Login failed: ' + error.message);
+            }
+        }
+
+        function handleIncomingCall(invitation) {
+            const ringTone = document.getElementById('ringTone');
+            ringTone.play();
+
+            currentSession = invitation;
+            const from = invitation.remoteIdentity.uri.user;
+
+            if (confirm(`Incoming call from ${from}. Accept?`)) {
+                ringTone.pause();
+                answerCall(invitation);
+            } else {
+                ringTone.pause();
+                invitation.reject();
+            }
+        }
+
+        async function answerCall(session) {
+            const remoteAudio = document.getElementById('remoteAudio');
+            const remoteStream = new MediaStream();
+
+            await session.accept({
+                sessionDescriptionHandlerOptions: {
+                    constraints: { audio: true, video: false }
+                }
+            });
+
+            const pc = session.sessionDescriptionHandler.peerConnection;
+            pc.getReceivers().forEach((receiver) => {
+                if (receiver.track) {
+                    remoteStream.addTrack(receiver.track);
+                }
+            });
+
+            remoteAudio.srcObject = remoteStream;
+            remoteAudio.play();
+
+            updateActiveCallsList();
+        }
+
+        function changeStatus() {
+            const status = document.getElementById('statusSelect').value;
+            updateAgentStatus(status);
+            
+            // Send status update to backend
+            fetch('/api/admin/agents/' + agentExtension + '/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: status })
+            });
+        }
+
+        function updateAgentStatus(status) {
+            const statusEl = document.getElementById('agentStatus');
+            statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            statusEl.className = `status-indicator status-${status}`;
+        }
+
+        function logout() {
+            if (userAgent) {
+                userAgent.stop();
+            }
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('statusSection').classList.add('hidden');
+            updateAgentStatus('offline');
+        }
+
+        async function loadAgentInfo() {
+            try {
+                const res = await fetch('/api/admin/agents');
+                const agents = await res.json();
+                const agent = agents.find(a => a.extension === agentExtension);
+                
+                if (agent) {
+                    document.getElementById('agentExtInfo').textContent = agent.extension;
+                    document.getElementById('agentNameInfo').textContent = agent.name;
+                    document.getElementById('agentCallsInfo').textContent = agent.total_calls;
+                }
+            } catch (err) {
+                console.error('Failed to load agent info:', err);
+            }
+        }
+
+        async function updateActiveCallsList() {
+            try {
+                const res = await fetch('/api/admin/calls/active');
+                const calls = await res.json();
+                
+                document.getElementById('activeCalls').textContent = calls.length;
+                
+                const listEl = document.getElementById('activeCallsList');
+                if (calls.length === 0) {
+                    listEl.innerHTML = '<p style="color: #666; text-align: center; padding: 40px;">No active calls</p>';
+                } else {
+                    listEl.innerHTML = calls.map(call => `
+                        <div class="call-item">
+                            <div class="info">
+                                <p><strong>From:</strong> ${call.customer_number}</p>
+                                <p><strong>Agent:</strong> ${call.agent_name || 'Unassigned'}</p>
+                                <p><strong>Status:</strong> ${call.status}</p>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error('Failed to update calls list:', err);
+            }
+        }
+
+        async function loadRecentCalls() {
+            try {
+                const res = await fetch('/api/admin/calls/history?limit=10');
+                const calls = await res.json();
+                
+                document.getElementById('callsToday').textContent = calls.filter(c => {
+                    const today = new Date().toDateString();
+                    const callDate = new Date(c.start_time).toDateString();
+                    return today === callDate;
+                }).length;
+                
+                const listEl = document.getElementById('recentCallsList');
+                if (calls.length === 0) {
+                    listEl.innerHTML = '<p style="color: #666; text-align: center; padding: 40px;">No recent calls</p>';
+                } else {
+                    listEl.innerHTML = calls.slice(0, 5).map(call => `
+                        <div class="call-item">
+                            <div class="info">
+                                <p><strong>From:</strong> ${call.from_number}</p>
+                                <p><strong>To:</strong> ${call.to_number}</p>
+                                <p><strong>Duration:</strong> ${call.duration || 0}s</p>
+                                <p><strong>Status:</strong> ${call.status}</p>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error('Failed to load recent calls:', err);
+            }
+        }
+
+        // Auto-refresh
+        setInterval(() => {
+            if (userAgent && userAgent.isConnected()) {
+                updateActiveCallsList();
+                loadRecentCalls();
+            }
+        }, 5000);
+
+        loadRecentCalls();
+    </script>
+</body>
+</html>
