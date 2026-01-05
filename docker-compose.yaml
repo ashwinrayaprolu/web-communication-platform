@@ -316,6 +316,8 @@ services:
       DRACHTIO_HOST: drachtio-1
       DRACHTIO_PORT: 9022
       DRACHTIO_SECRET: cymru
+      RTPENGINE_HOST: rtpengine
+      RTPENGINE_PORT: 22222
       FREESWITCH_HOST: freeswitch-1
       FREESWITCH_PORT: 8021
       FREESWITCH_PASSWORD: JambonzR0ck$
@@ -363,6 +365,8 @@ services:
       DRACHTIO_HOST: drachtio-2
       DRACHTIO_PORT: 9022
       DRACHTIO_SECRET: cymru
+      RTPENGINE_HOST: rtpengine
+      RTPENGINE_PORT: 22222
       FREESWITCH_HOST: freeswitch-2
       FREESWITCH_PORT: 8021
       FREESWITCH_PASSWORD: JambonzR0ck$

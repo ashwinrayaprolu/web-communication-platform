@@ -6,7 +6,16 @@ const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 const winston = require('winston');
 const axios = require('axios');
+const { Client: RtpEngine } = require('rtpengine-client');
 const ttsServiceUrl = process.env.TTS_SERVICE_URL || 'http://tts-service:8000';
+
+
+// Initialize RTPEngine client
+const rtpEngine = new RtpEngine({
+  host: process.env.RTPENGINE_HOST || 'rtpengine',
+  port: process.env.RTPENGINE_PORT || 22222,
+  timeout: 5000
+});
 
 // Logger setup
 const logger = winston.createLogger({
@@ -119,42 +128,319 @@ srf.invite(async (req, res) => {
   }
 });
 
-// Handle direct calls to extension 6000
+
+
+
 async function handleDirectCall(req, res, callId, from, to) {
   try {
-    const ms = await mrf.connect({
+    logger.info(`Direct call to ${to}: ${callId} from ${from}`);
+    
+    const targetExtension = to.match(/sip:(\d+)@/)?.[1];
+    
+    if (!targetExtension) {
+      logger.error(`Failed to extract target extension from: ${to}`);
+      res.send(400, 'Bad Request - Invalid destination');
+      return;
+    }
+    
+    logger.info(`Bridging call ${callId} to extension ${targetExtension}`);
+    
+    // Simple B2BUA without RTPEngine - Kamailio handles media
+    const { uas, uac } = await srf.createB2BUA(req, res, 
+      `sip:${targetExtension}@${process.env.KAMAILIO_HOST || 'kamailio'}:${process.env.KAMAILIO_PORT || '5060'}`,
+      {
+        headers: {
+          'X-Call-ID': callId,
+          'X-From-App': 'true'
+        }
+      }
+    );
+    
+    logger.info(`Call ${callId} successfully bridged to ${targetExtension}`);
+    
+    activeCalls.set(callId, { uas, uac, from, to, callId });
+    await logCall(callId, from, targetExtension, 'direct');
+    
+    uas.on('destroy', async () => {
+      logger.info(`Caller hung up on ${callId}`);
+      uac.destroy();
+      activeCalls.delete(callId);
+      await updateCallLog(callId, 'completed');
+    });
+    
+    uac.on('destroy', async () => {
+      logger.info(`Target hung up on ${callId}`);
+      uas.destroy();
+      activeCalls.delete(callId);
+      await updateCallLog(callId, 'completed');
+    });
+    
+  } catch (err) {
+    logger.error(`Error in handleDirectCall: ${err.message}`, err);
+    if (!res.finalResponseSent) {
+      res.send(480, 'Temporarily Unavailable');
+    }
+  }
+}
+
+  // Updated handleDirectCall function with loop prevention headers
+
+async function handleDirectCallRTPEngine(req, res, callId, from, to) {
+  const rtpEngineOpts = {
+    host: process.env.RTPENGINE_HOST || 'rtpengine',
+    port: parseInt(process.env.RTPENGINE_PORT || '22222')
+  };
+
+  try {
+    logger.info(`Direct call to ${to}: ${callId} from ${from}`);
+    
+    const targetExtension = to.match(/sip:(\d+)@/)?.[1];
+    
+    if (!targetExtension) {
+      logger.error(`Failed to extract target extension from: ${to}`);
+      res.send(400, 'Bad Request - Invalid destination');
+      return;
+    }
+    
+    logger.info(`Bridging call ${callId} to extension ${targetExtension}`);
+
+
+    logger.info(`----SIP Request body ${req.body}`);
+    
+    // Detect if this is a WebRTC client
+    const isWebRTC = req.body.includes('RTP/SAVPF') || req.body.includes('a=fingerprint');
+    const fromTag = req.getParsedHeader('from').params.tag;
+    
+    logger.info(`Call ${callId} is WebRTC: ${isWebRTC}`);
+    
+    // Step 1: OFFER to RTPEngine (WebRTC browser → RTP backend)
+    const offerParams = {
+      'call-id': callId,
+      'from-tag': fromTag,
+      'sdp': req.body,
+      'direction': ['private', 'public']
+    };
+    
+    if (isWebRTC) {
+      // For WebRTC clients, convert to RTP/AVP for the backend
+      offerParams['ICE'] = 'remove';
+      offerParams['DTLS'] = 'off';
+      offerParams['rtcp-mux'] = ['demux'];
+      offerParams['transport-protocol'] = 'RTP/AVP';
+    }
+    
+    const offerResponse = await rtpEngine.offer(rtpEngineOpts, offerParams);
+    const modifiedSdpForBackend = offerResponse.sdp;
+    logger.info(`RTPEngine offer completed for ${callId}`);
+    
+    // Step 2: Create B2BUA with modified SDP
+    const { uas, uac } = await srf.createB2BUA(req, res, 
+      `sip:${targetExtension}@${process.env.KAMAILIO_HOST || 'kamailio'}:${process.env.KAMAILIO_PORT || '5060'}`,
+      {
+        localSdpB: modifiedSdpForBackend,
+        localSdpA: async (sdp, uacRes) => {
+          const toTag = uacRes.getParsedHeader('to').params.tag;
+          
+          // Step 3: ANSWER to RTPEngine (RTP backend → WebRTC browser)
+          const answerParams = {
+            'call-id': callId,
+            'from-tag': fromTag,
+            'to-tag': toTag,
+            'sdp': sdp,
+            'direction': ['public', 'private']
+          };
+          
+          if (isWebRTC) {
+            // CRITICAL: Convert back to WebRTC for the browser
+            answerParams['transport-protocol'] = 'RTP/SAVPF';
+            answerParams['ICE'] = 'force';
+            answerParams['DTLS'] = 'passive';  // or 'actpass'
+            answerParams['rtcp-mux'] = ['require'];
+            answerParams['generate-RTCP'] = true;
+          } else {
+            answerParams['transport-protocol'] = 'RTP/AVP';
+          }
+          
+          const answerResponse = await rtpEngine.answer(rtpEngineOpts, answerParams);
+          logger.info(`RTPEngine answer completed for ${callId}`);
+          logger.info(`Answer SDP for browser: ${answerResponse.sdp.substring(0, 200)}...`);
+          return answerResponse.sdp;
+        },
+        headers: {
+          'X-Call-ID': callId,
+          'X-From-App': 'true'
+        }
+      }
+    );
+    
+    logger.info(`Call ${callId} successfully bridged to ${targetExtension} via RTPEngine`);
+    
+    // Store active call information
+    activeCalls.set(callId, { uas, uac, from, to, callId, fromTag });
+    await logCall(callId, from, targetExtension, 'direct');
+    
+    // Cleanup function
+    const cleanup = async () => {
+      try {
+        await rtpEngine.delete(rtpEngineOpts, { 
+          'call-id': callId,
+          'from-tag': fromTag
+        });
+        logger.info(`RTPEngine session deleted for ${callId}`);
+      } catch (err) {
+        logger.error(`Failed to delete RTPEngine session: ${err.message}`);
+      }
+      activeCalls.delete(callId);
+      await updateCallLog(callId, 'completed');
+    };
+    
+    uas.on('destroy', async () => {
+      logger.info(`Caller hung up on ${callId}`);
+      uac.destroy();
+      await cleanup();
+    });
+    
+    uac.on('destroy', async () => {
+      logger.info(`Target hung up on ${callId}`);
+      uas.destroy();
+      await cleanup();
+    });
+    
+  } catch (err) {
+    logger.error(`Error in handleDirectCall: ${err.message}`, err);
+    
+    try {
+      const fromTag = req.getParsedHeader('from')?.params?.tag;
+      if (fromTag) {
+        await rtpEngine.delete(rtpEngineOpts, {
+          'call-id': callId,
+          'from-tag': fromTag
+        });
+      }
+    } catch (e) {
+      logger.error(`Failed to cleanup RTPEngine: ${e.message}`);
+    }
+    
+    if (!res.finalResponseSent) {
+      res.send(480, 'Temporarily Unavailable');
+    }
+  }
+}
+
+
+
+
+// Handle direct calls to extension 6000
+async function handleDirectCallFreeswitch(req, res, callId, from, to) {
+  let ms, endpoint, dialog;
+  
+  try {
+    logger.info(`Direct call to ${to}: ${callId} from ${from}`);
+    
+    // Extract extension number (e.g., 6000)
+    const targetExtension = to.match(/sip:(\d+)@/)?.[1] || '6000';
+    
+    // Connect to FreeSWITCH
+    ms = await mrf.connect({
       address: process.env.FREESWITCH_HOST || 'freeswitch-1',
-      port: process.env.FREESWITCH_PORT || 8021,
+      port: parseInt(process.env.FREESWITCH_PORT || '8021'),
       secret: process.env.FREESWITCH_PASSWORD || 'JambonzR0ck$'
     });
 
-    const { endpoint, dialog } = await srf.createUAS(req, res, {
-      localSdp: ms.local.sdp
-    });
+    logger.info(`FreeSWITCH connected for direct call ${callId}`);
 
-    logger.info(`Call established for ${callId}`);
+    // Connect caller to FreeSWITCH
+    const result = await ms.connectCaller(req, res);
+    endpoint = result.endpoint;
+    dialog = result.dialog;
 
-    // Play announcement
-    await ms.api('playback', '/usr/share/freeswitch/sounds/en/us/callie/ivr/8000/ivr-hello.wav');
+    logger.info(`Direct call established: ${callId}, bridging to ${targetExtension}`);
 
     // Store call info
     activeCalls.set(callId, { dialog, endpoint, ms, from, to });
 
     // Log call to database
-    await logCall(callId, from, to, 'answered');
+    await logCall(callId, from, targetExtension, 'direct');
 
-    // Handle call termination
-    dialog.on('destroy', async () => {
-      logger.info(`Call ended: ${callId}`);
-      ms.disconnect();
-      activeCalls.delete(callId);
-      await updateCallLog(callId, 'completed');
-    });
+    // Try to bridge to the target extension
+    try {
+      logger.info(`Attempting to bridge ${callId} to sip:${targetExtension}@localhost`);
+      
+      // Play ringing tone while connecting
+      await endpoint.play('tone_stream://%(2000,4000,440,480);loops=-1');
+      
+      // Create outbound call to target extension
+      const { endpoint: targetEndpoint, dialog: targetDialog } = await ms.createCall({
+        destination: `sip:${targetExtension}@${process.env.FREESWITCH_HOST || 'freeswitch-1'}`,
+        callingNumber: from,
+        headers: {
+          'X-Call-ID': callId
+        },
+        timeout: 30  // Add a timeout to prevent hanging indefinitely
+      });
+
+      logger.info(`Outbound leg created for ${callId}, bridging...`);
+
+      // Bridge the two calls
+      await endpoint.bridge(targetEndpoint);
+      
+      logger.info(`Call ${callId} successfully bridged to ${targetExtension}`);
+
+      // Handle target hangup
+      targetDialog.on('destroy', () => {
+        logger.info(`Target ${targetExtension} hung up on ${callId}`);
+        if (dialog) dialog.destroy();
+      });
+
+      // Handle caller hangup
+      dialog.on('destroy', async () => {
+        logger.info(`Caller hung up on ${callId}`);
+        if (targetDialog) targetDialog.destroy();
+        if (targetEndpoint) targetEndpoint.destroy();
+        if (endpoint) endpoint.destroy();
+        if (ms) ms.disconnect();
+        activeCalls.delete(callId);
+        await updateCallLog(callId, 'completed');
+      });
+
+    } catch (bridgeErr) {
+      // Bridge failed - agent not registered or busy
+      logger.warn(`Bridge failed for ${callId}: ${bridgeErr.message}`);
+      
+      // Stop ringing tone
+      await endpoint.stop();
+      
+      // Play message that agent is unavailable
+      try {
+        const ttsResponse = await axios.post('http://tts-service:8000/tts', {
+          text: `Extension ${targetExtension} is not available. Please try again later.`,
+          cache: true
+        });
+        await endpoint.play(ttsResponse.data.file_path);
+      } catch (ttsErr) {
+        logger.warn(`TTS failed: ${ttsErr.message}`);
+        await endpoint.play('tone_stream://%(200,0,480,620);loops=3');
+      }
+      
+      // Hang up after 2 seconds
+      setTimeout(() => {
+        if (dialog) dialog.destroy();
+      }, 2000);
+    }
+    
   } catch (err) {
-    logger.error('Error in handleDirectCall:', err);
-    throw err;
+    logger.error(`Error in handleDirectCall: ${err.message}`, err);
+    
+    // Cleanup on error
+    if (endpoint) try { endpoint.destroy(); } catch (e) {}
+    if (ms) try { ms.disconnect(); } catch (e) {}
+    
+    if (!res.finalResponseSent) {
+      res.send(500, 'Internal Server Error');
+    }
   }
 }
+
 
 // Handle IVR calls to extension 9999
 async function handleIVRCall(req, res, callId, from, to) {
@@ -194,7 +480,7 @@ async function handleIVRCall(req, res, callId, from, to) {
     endpoint.on('dtmf', async (evt) => {
       logger.info(`DTMF received: ${JSON.stringify(evt)}`);
       //const digit = evt.dtmf?.digit || evt.digit;
-      const digit = evt.dtmf;
+      const digit = evt.dtmf || evt.digit;
       if (digit) {
         await handleDTMF(callId, digit, endpoint);
       }

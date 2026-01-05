@@ -74,7 +74,7 @@
   <!--
       This setting is what sets the default domain FreeSWITCH will use if all else fails.
 
-      FreeSWICH will default to 172.18.0.9 unless changed.  Changing this setting does
+      FreeSWICH will default to 172.18.0.8 unless changed.  Changing this setting does
       affect the sip authentication.  Please review conf/directory/default.xml for more
       information on this topic.
   -->
@@ -1046,7 +1046,7 @@ enum AVColorRange {
 <configuration name="conference.conf" description="Audio Conference">
   <!-- Advertise certain presence on startup . -->
   <advertise>
-    <room name="3001@172.18.0.9" status="FreeSWITCH"/>
+    <room name="3001@172.18.0.8" status="FreeSWITCH"/>
   </advertise>
 
   <!-- These are the default keys that map when you do not specify a caller control group -->	
@@ -1080,7 +1080,7 @@ enum AVColorRange {
       <!-- <param name="cdr-log-dir" value="auto"/> -->
 
       <!-- Domain (for presence) -->
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <!-- Sample Rate-->
       <param name="rate" value="8000"/>
       <!-- Number of milliseconds per frame -->
@@ -1172,7 +1172,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="wideband">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="16000"/>
       <param name="interval" value="20"/>
       <param name="energy-level" value="100"/>
@@ -1197,7 +1197,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="ultrawideband">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="32000"/>
       <param name="interval" value="20"/>
       <param name="energy-level" value="100"/>
@@ -1236,7 +1236,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="cdquality">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="48000"/>
       <param name="interval" value="20"/>
       <param name="energy-level" value="100"/>
@@ -1271,7 +1271,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="video-mcu-stereo">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="48000"/>
       <param name="channels" value="2"/>
       <param name="interval" value="20"/>
@@ -1307,7 +1307,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="video-mcu-stereo-720">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="48000"/>
       <param name="channels" value="2"/>
       <param name="interval" value="20"/>
@@ -1342,7 +1342,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="video-mcu-stereo-480">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="48000"/>
       <param name="channels" value="2"/>
       <param name="interval" value="20"/>
@@ -1377,7 +1377,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="video-mcu-stereo-320">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="48000"/>
       <param name="channels" value="2"/>
       <param name="interval" value="20"/>
@@ -1412,7 +1412,7 @@ enum AVColorRange {
     </profile>
 
     <profile name="sla">
-      <param name="domain" value="172.18.0.9"/>
+      <param name="domain" value="172.18.0.8"/>
       <param name="rate" value="16000"/>
       <param name="interval" value="20"/>
       <param name="caller-controls" value="none"/>
@@ -2033,8 +2033,8 @@ enum AVColorRange {
     <param name="delete-all-outbound-member-on-startup" value="false"/>
   </settings>
   <fifos>
-    <fifo name="cool_fifo@172.18.0.9" importance="0">
-      <!--<member timeout="60" simo="1" lag="20">{member_wait=nowait}user/1005@172.18.0.9</member>-->
+    <fifo name="cool_fifo@172.18.0.8" importance="0">
+      <!--<member timeout="60" simo="1" lag="20">{member_wait=nowait}user/1005@172.18.0.8</member>-->
     </fifo>
   </fifos>
 </configuration>
@@ -2351,7 +2351,7 @@ enum AVColorRange {
 
     <!-- The following are the definitions for the digits the user dials -->
     <!-- Digit 1 transfer caller to the public FreeSWITCH conference -->
-    <entry action="menu-exec-app" digits="1" param="bridge sofia/172.18.0.9/888@conference.freeswitch.org"/>
+    <entry action="menu-exec-app" digits="1" param="bridge sofia/172.18.0.8/888@conference.freeswitch.org"/>
     <entry action="menu-exec-app" digits="2" param="transfer 9196 XML default"/>    <!-- FS echo -->
     <entry action="menu-exec-app" digits="3" param="transfer 9664 XML default"/>    <!-- MOH -->
     <entry action="menu-exec-app" digits="4" param="transfer 9191 XML default"/>    <!-- ClueCon -->
@@ -3106,7 +3106,7 @@ SELECT l.digits AS lcr_digits,
 </configuration>
 <configuration name="msrp.conf" description="MSRP">
   <settings>
-    <param name="listen-ip" value="172.18.0.9"/>
+    <param name="listen-ip" value="172.18.0.8"/>
     <!-- <param name="listen-port" value="2855"/> -->
     <!-- <param name="listen-ssl-port" value="2856"/> -->
     <!-- <param name="message-buffer-size" value="50"/> -->
@@ -3175,11 +3175,11 @@ SELECT l.digits AS lcr_digits,
       <!-- <param name="disable-transcoding" value="true"/> -->  <!-- do not transcode, use source channel codec only -->
       <param name="gk-address" value=""/>                        <!-- empty to disable, "*" to search LAN -->
       <param name="gk-identifer" value=""/>                      <!-- optional name of gk -->
-      <param name="gk-interface" value="172.18.0.9"/>       <!-- optional listener interface name -->
+      <param name="gk-interface" value="172.18.0.8"/>       <!-- optional listener interface name -->
    </settings>
    <listeners>
       <listener name="default">
-         <param name="h323-ip" value="172.18.0.9"/>
+         <param name="h323-ip" value="172.18.0.8"/>
          <param name="h323-port" value="1720"/>
       </listener>
    </listeners>
@@ -3548,7 +3548,7 @@ the sip-server-addr and sip-server-port to the oreka server
 </configuration>
 <configuration name="presence_map.conf" description="PRESENCE MAP">
   <domains>
-    <domain name="172.18.0.9">
+    <domain name="172.18.0.8">
       <exten regex="3\d+" proto="conf"/>
     </domain>
   </domains>
@@ -3663,8 +3663,8 @@ the sip-server-addr and sip-server-port to the oreka server
   <profiles>
 <profile name="internal">
   <settings>
-    <param name="domain" value="172.18.0.9"/>
-    <param name="ip" value="172.18.0.9"/>
+    <param name="domain" value="172.18.0.8"/>
+    <param name="ip" value="172.18.0.8"/>
     <param name="port" value="2000"/>
     <param name="patterns-dialplan" value="XML"/>
     <param name="patterns-context" value="skinny-patterns"/>
@@ -3777,11 +3777,11 @@ the sip-server-addr and sip-server-port to the oreka server
       <param name="dtmf-type" value="rfc2833"/>
 
       <param name="inbound-late-negotiation" value="true"/>
-      <param name="rtp-ip" value="172.18.0.9"/>
-      <param name="sip-ip" value="172.18.0.9"/>
+      <param name="rtp-ip" value="172.18.0.8"/>
+      <param name="sip-ip" value="172.18.0.8"/>
       <param name="sip-port" value="5080"/>
-      <param name="ext-rtp-ip" value="172.18.0.9"/>
-      <param name="ext-sip-ip" value="172.18.0.9"/>
+      <param name="ext-rtp-ip" value="172.18.0.8"/>
+      <param name="ext-sip-ip" value="172.18.0.8"/>
       <param name="auth-calls" value="false"/>
       <param name="enable-timer" value="false"/>
       <param name="user-agent-string" value="Jambonz media gateway"/>
@@ -6064,9 +6064,9 @@ the sip-server-addr and sip-server-port to the oreka server
 
   <profiles>
     <profile name="default-v4">
-      <param name="bind-local" value="172.18.0.9:8081"/>
-      <param name="bind-local" value="172.18.0.9:8082" secure="true"/>
-      <param name="force-register-domain" value="172.18.0.9"/>
+      <param name="bind-local" value="172.18.0.8:8081"/>
+      <param name="bind-local" value="172.18.0.8:8082" secure="true"/>
+      <param name="force-register-domain" value="172.18.0.8"/>
       <param name="secure-combined" value="/usr/local/freeswitch/certs/wss.pem"/>
       <param name="secure-chain" value="/usr/local/freeswitch/certs/wss.pem"/>
       <param name="userauth" value="true"/>
@@ -6074,7 +6074,7 @@ the sip-server-addr and sip-server-port to the oreka server
       <param name="blind-reg" value="false"/>
       <param name="mcast-ip" value="224.1.1.1"/>
       <param name="mcast-port" value="1337"/>
-      <param name="rtp-ip" value="172.18.0.9"/>
+      <param name="rtp-ip" value="172.18.0.8"/>
       <param name="ext-rtp-ip" value="76.66.109.182"/>
       <param name="local-network" value="localnet.auto"/>
       <param name="outbound-codec-string" value="opus,h264,vp8"/>
@@ -6091,7 +6091,7 @@ the sip-server-addr and sip-server-port to the oreka server
     <profile name="default-v6">
       <param name="bind-local" value="[::1]:8081"/>
       <param name="bind-local" value="[::1]:8082" secure="true"/>
-      <param name="force-register-domain" value="172.18.0.9"/>
+      <param name="force-register-domain" value="172.18.0.8"/>
       <param name="secure-combined" value="/usr/local/freeswitch/certs/wss.pem"/>
       <param name="secure-chain" value="/usr/local/freeswitch/certs/wss.pem"/>
       <param name="userauth" value="true"/>
@@ -6709,7 +6709,7 @@ the sip-server-addr and sip-server-port to the oreka server
   <bindings>
     <binding name="example">
       <!-- Allow to bind on a particular IP for requests sent -->
-      <!--<param name="bind-local" value="172.18.0.9" />-->
+      <!--<param name="bind-local" value="172.18.0.8" />-->
       <!-- The url to a gateway cgi that can generate xml similar to
 	   what's in this file only on-the-fly (leave it commented if you dont
 	   need it) -->

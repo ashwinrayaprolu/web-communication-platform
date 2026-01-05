@@ -3,259 +3,1082 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agent Portal - VoIP System</title>
-    <script src="https://cdn.jsdelivr.net/npm/sip.js@0.21.2/dist/sip.min.js"></script>
+    <title>Agent Console - VoIP System</title>
+    <script src="./sip-0.21.2.min.js"></script>
+<script>
+// Fix for duplicated SDP and allow non-DTLS connections
+(function() {
+    const OrigRTCPC = window.RTCPeerConnection;
+    window.RTCPeerConnection = function(config) {
+        // Modify config to allow non-DTLS
+        if (config && config.iceServers) {
+            // This won't help with missing fingerprint, but let's try anyway
+        }
+        
+        const pc = new OrigRTCPC(config);
+        const origSetRemote = pc.setRemoteDescription.bind(pc);
+        
+        pc.setRemoteDescription = async function(desc) {
+            if (desc && desc.sdp) {
+                // Fix duplicated SDP
+                const lines = desc.sdp.split('\r\n');
+                const vIndices = [];
+                lines.forEach((line, idx) => {
+                    if (line === 'v=0') vIndices.push(idx);
+                });
+                
+                if (vIndices.length > 1) {
+                    const cleanedLines = lines.slice(0, vIndices[1]);
+                    while (cleanedLines.length > 0 && cleanedLines[cleanedLines.length - 1] === '') {
+                        cleanedLines.pop();
+                    }
+                    desc = {
+                        type: desc.type,
+                        sdp: cleanedLines.join('\r\n') + '\r\n'
+                    };
+                }
+                
+                // If fingerprint is missing, this is RTP/AVP (not WebRTC)
+                // We need to convert the media line to use RTP/SAVPF for WebRTC
+                if (!desc.sdp.includes('a=fingerprint:')) {
+                    console.log('[ERROR] SDP is missing DTLS fingerprint - this call cannot be established without server-side WebRTC support');
+                    console.log('[ERROR] Your server needs to be configured for WebRTC with DTLS/SRTP');
+                }
+                console.log('[AFTER FIX] SDP has fingerprint?', desc.sdp.includes('a=fingerprint:'));
+                console.log('[AFTER FIX] SDP:\n', desc.sdp);
+            }
+            return origSetRemote(desc);
+        };
+        return pc;
+    };
+    Object.setPrototypeOf(window.RTCPeerConnection, OrigRTCPC);
+    window.RTCPeerConnection.prototype = OrigRTCPC.prototype;
+})();
+</script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f7fa;
+            --bg-tertiary: #e8ecf1;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --text-tertiary: #718096;
+            --border-color: #e2e8f0;
+            --accent-primary: #667eea;
+            --accent-secondary: #764ba2;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --shadow: rgba(0, 0, 0, 0.1);
+            --shadow-lg: rgba(0, 0, 0, 0.15);
+        }
+
+        [data-theme="dark"] {
+            --bg-primary: #1a202c;
+            --bg-secondary: #2d3748;
+            --bg-tertiary: #374151;
+            --text-primary: #f7fafc;
+            --text-secondary: #e2e8f0;
+            --text-tertiary: #cbd5e0;
+            --border-color: #4a5568;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --shadow-lg: rgba(0, 0, 0, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            min-height: 100vh;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            transition: background 0.3s, color 0.3s;
         }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+
+        .app-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
         }
-        .header h1 {
-            font-size: 24px;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 300px 1fr;
-            gap: 20px;
-        }
+
+        /* Sidebar */
         .sidebar {
-            background: white;
-            border-radius: 10px;
+            width: 280px;
+            background: var(--bg-primary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s;
+        }
+
+        .sidebar-header {
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            color: white;
         }
-        .main-content {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .status-indicator {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
-            font-weight: 600;
-        }
-        .status-offline { background: #f8d7da; color: #721c24; }
-        .status-online { background: #d4edda; color: #155724; }
-        .status-busy { background: #fff3cd; color: #856404; }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
+
+        .sidebar-header h1 {
+            font-size: 20px;
             margin-bottom: 5px;
+        }
+
+        .sidebar-header .status {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .agent-info {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .agent-info h3 {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .info-label {
+            color: var(--text-tertiary);
+        }
+
+        .info-value {
             font-weight: 600;
-            color: #333;
-            font-size: 14px;
+            color: var(--text-primary);
         }
-        input, select {
-            width: 100%;
+
+        .nav-menu {
+            flex: 1;
             padding: 10px;
-            border: 2px solid #e0e0e0;
-            border-radius: 6px;
+        }
+
+        .nav-item {
+            padding: 12px 15px;
+            margin-bottom: 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+        }
+
+        .nav-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .nav-item.active {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .nav-icon {
+            font-size: 18px;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            height: 60px;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+        }
+
+        .top-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .theme-toggle {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.2s;
+        }
+
+        .theme-toggle:hover {
+            transform: scale(1.05);
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-badge.online {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .status-badge.offline {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Content Area */
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        /* Login View */
+        .login-container {
+            max-width: 400px;
+            margin: 80px auto;
+            background: var(--bg-primary);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px var(--shadow-lg);
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-header h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .login-header p {
+            color: var(--text-secondary);
             font-size: 14px;
         }
-        input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
+
+        .form-group {
+            margin-bottom: 20px;
         }
-        .btn {
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
             width: 100%;
             padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 10px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
+
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
             color: white;
+            width: 100%;
         }
+
         .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px var(--shadow-lg);
         }
+
         .btn-success {
-            background: #28a745;
+            background: var(--success);
             color: white;
         }
+
         .btn-danger {
-            background: #dc3545;
+            background: var(--danger);
             color: white;
         }
-        .btn-warning {
-            background: #ffc107;
-            color: #333;
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
         }
+
+        /* Dialer */
+        .dialer-container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .dialer-display {
+            background: var(--bg-primary);
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px var(--shadow);
+        }
+
+        .dialer-input {
+            width: 100%;
+            padding: 20px;
+            font-size: 32px;
+            font-weight: 300;
+            text-align: center;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            letter-spacing: 3px;
+        }
+
+        .dialer-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .quick-dial {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .quick-dial-btn {
+            padding: 15px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .quick-dial-btn:hover {
+            background: var(--accent-primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .quick-dial-ext {
+            font-size: 18px;
+            font-weight: 600;
+            display: block;
+        }
+
+        .quick-dial-label {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            display: block;
+            margin-top: 5px;
+        }
+
+        .dialpad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .dialpad-btn {
+            aspect-ratio: 1;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            font-size: 24px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+        }
+
+        .dialpad-btn:hover {
+            background: var(--accent-primary);
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .dialpad-btn:active {
+            transform: scale(0.95);
+        }
+
+        .dialpad-letters {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+        }
+
+        .call-actions {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            gap: 15px;
+        }
+
+        .call-btn {
+            padding: 18px;
+            border: none;
+            border-radius: 12px;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .call-btn-call {
+            background: var(--success);
+            color: white;
+            grid-column: 2;
+        }
+
+        .call-btn-call:hover {
+            background: #059669;
+            transform: scale(1.05);
+        }
+
+        .call-btn-backspace {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        /* Call Status */
+        .call-status {
+            background: var(--bg-primary);
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            margin: 20px auto;
+            max-width: 400px;
+            box-shadow: 0 4px 20px var(--shadow-lg);
+        }
+
+        .call-status-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .call-status-text {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .call-status-extension {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .call-status-time {
+            color: var(--text-tertiary);
+            font-size: 14px;
+        }
+
+        .call-controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .call-control-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .call-control-btn.mute {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .call-control-btn.hangup {
+            background: var(--danger);
+            color: white;
+        }
+
+        .call-control-btn:hover {
+            transform: scale(1.1);
+        }
+
+        /* Incoming Call Notification */
+        .incoming-call-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s;
+        }
+
+        .incoming-call-modal.active {
+            display: flex;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .incoming-call-content {
+            background: var(--bg-primary);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 400px;
+            animation: slideUp 0.3s;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .incoming-call-avatar {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 20px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            animation: pulse 1.5s infinite;
+        }
+
+        .incoming-call-title {
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .incoming-call-from {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .incoming-call-actions {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .incoming-call-btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            font-size: 32px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .incoming-call-btn.accept {
+            background: var(--success);
+            color: white;
+        }
+
+        .incoming-call-btn.reject {
+            background: var(--danger);
+            color: white;
+        }
+
+        .incoming-call-btn:hover {
+            transform: scale(1.1);
+        }
+
+        /* Stats Grid */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            gap: 20px;
             margin-bottom: 30px;
         }
+
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--bg-primary);
             padding: 20px;
-            border-radius: 8px;
-            text-align: center;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px var(--shadow);
         }
-        .stat-card h3 {
+
+        .stat-label {
             font-size: 12px;
-            opacity: 0.9;
+            color: var(--text-tertiary);
             margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-        .stat-card .value {
+
+        .stat-value {
             font-size: 32px;
-            font-weight: bold;
+            font-weight: 700;
+            color: var(--text-primary);
         }
-        .calls-list {
-            margin-top: 20px;
+
+        /* Hidden class */
+        .hidden {
+            display: none !important;
         }
-        .call-item {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 0;
+                min-width: 0;
+                border-right: none;
+            }
+            
+            .sidebar.mobile-open {
+                width: 280px;
+            }
         }
-        .call-item .info {
-            flex: 1;
-        }
-        .call-item .info p {
-            margin: 3px 0;
-            font-size: 14px;
-        }
-        .call-item .actions button {
-            padding: 8px 16px;
-            margin-left: 5px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .hidden { display: none; }
-        h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 20px;
-        }
-        audio { display: none; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <h1>👨‍💼 Agent Portal</h1>
-    </div>
+<body data-theme="light">
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>🎧 Agent Console</h1>
+                <div class="status">Ready to assist</div>
+            </div>
 
-    <div class="container">
-        <div class="grid">
-            <div class="sidebar">
-                <div id="agentStatus" class="status-indicator status-offline">
-                    Offline
+            <div class="agent-info" id="agentInfoSection">
+                <h3>Agent Information</h3>
+                <div class="info-item">
+                    <span class="info-label">Extension:</span>
+                    <span class="info-value" id="agentExt">-</span>
                 </div>
-
-                <div id="loginSection">
-                    <div class="form-group">
-                        <label>Agent Extension</label>
-                        <input type="text" id="agentExtension" value="6001" placeholder="6001">
-                    </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="agentPassword" value="test123">
-                    </div>
-                    <div class="form-group">
-                        <label>Server</label>
-                        <input type="text" id="server" value="ws://localhost/ws">
-                    </div>
-                    <button class="btn btn-primary" onclick="login()">Login</button>
+                <div class="info-item">
+                    <span class="info-label">Status:</span>
+                    <span class="info-value" id="agentStatus">Offline</span>
                 </div>
-
-                <div id="statusSection" class="hidden">
-                    <div class="form-group">
-                        <label>Agent Status</label>
-                        <select id="statusSelect" onchange="changeStatus()">
-                            <option value="online">Online</option>
-                            <option value="busy">Busy</option>
-                            <option value="away">Away</option>
-                            <option value="offline">Offline</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-danger" onclick="logout()">Logout</button>
-                </div>
-
-                <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                    <h3 style="font-size: 14px; margin-bottom: 10px;">Agent Info</h3>
-                    <p style="font-size: 12px; color: #666;"><strong>Extension:</strong> <span id="agentExtInfo">-</span></p>
-                    <p style="font-size: 12px; color: #666;"><strong>Name:</strong> <span id="agentNameInfo">-</span></p>
-                    <p style="font-size: 12px; color: #666;"><strong>Total Calls:</strong> <span id="agentCallsInfo">0</span></p>
+                <div class="info-item">
+                    <span class="info-label">Calls Today:</span>
+                    <span class="info-value" id="callsToday">0</span>
                 </div>
             </div>
 
-            <div class="main-content">
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>Active Calls</h3>
-                        <div class="value" id="activeCalls">0</div>
+            <nav class="nav-menu">
+                <div class="nav-item active" onclick="showView('dialer')">
+                    <span class="nav-icon">📞</span>
+                    <span>Dialer</span>
+                </div>
+                <div class="nav-item" onclick="showView('history')">
+                    <span class="nav-icon">📋</span>
+                    <span>Call History</span>
+                </div>
+                <div class="nav-item" onclick="showView('stats')">
+                    <span class="nav-icon">📊</span>
+                    <span>Statistics</span>
+                </div>
+                <div class="nav-item" onclick="showView('settings')">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Settings</span>
+                </div>
+            </nav>
+
+            <div style="padding: 20px;">
+                <button class="btn btn-danger" onclick="logout()" style="width: 100%;">
+                    Logout
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <div class="top-bar-left">
+                    <h2 id="viewTitle">Dialer</h2>
+                </div>
+                <div style="display: flex; align-items: center; gap: 15px;">
+                    <div class="status-badge" id="connectionStatus">
+                        <span class="status-indicator"></span>
+                        <span id="statusText">Offline</span>
                     </div>
-                    <div class="stat-card">
-                        <h3>Waiting Calls</h3>
-                        <div class="value" id="waitingCalls">0</div>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Calls Today</h3>
-                        <div class="value" id="callsToday">0</div>
+                    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+                        <span id="themeIcon">🌙</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Login View -->
+                <div id="loginView" class="view active">
+                    <div class="login-container">
+                        <div class="login-header">
+                            <h2>Agent Login</h2>
+                            <p>Sign in to access your agent console</p>
+                        </div>
+                        <form onsubmit="login(event)">
+                            <div class="form-group">
+                                <label class="form-label">Extension</label>
+                                <input type="text" id="loginExtension" class="form-input" placeholder="6000" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Password</label>
+                                <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Server</label>
+                                <input type="text" id="loginServer" class="form-input" readonly>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                Sign In
+                            </button>
+                        </form>
                     </div>
                 </div>
 
-                <h2>📞 Active Calls</h2>
-                <div id="activeCallsList" class="calls-list">
-                    <p style="color: #666; text-align: center; padding: 40px;">No active calls</p>
+                <!-- Dialer View -->
+                <div id="dialerView" class="view">
+                    <div class="dialer-container">
+                        <div class="dialer-display">
+                            <input type="text" id="dialerInput" class="dialer-input" placeholder="Enter extension" maxlength="10">
+                        </div>
+
+                        <!-- Quick Dial -->
+                        <h3 style="margin-bottom: 15px; color: var(--text-secondary);">Quick Dial</h3>
+                        <div class="quick-dial">
+                            <div class="quick-dial-btn" onclick="quickDial('8888')">
+                                <span class="quick-dial-ext">8888</span>
+                                <span class="quick-dial-label">Voice IVR</span>
+                            </div>
+                            <div class="quick-dial-btn" onclick="quickDial('9999')">
+                                <span class="quick-dial-ext">9999</span>
+                                <span class="quick-dial-label">DTMF IVR</span>
+                            </div>
+                            <div class="quick-dial-btn" onclick="quickDial('6000')">
+                                <span class="quick-dial-ext">6000</span>
+                                <span class="quick-dial-label">Agent 1</span>
+                            </div>
+                            <div class="quick-dial-btn" onclick="quickDial('6001')">
+                                <span class="quick-dial-ext">6001</span>
+                                <span class="quick-dial-label">Agent 2</span>
+                            </div>
+                        </div>
+
+                        <!-- Dialpad -->
+                        <h3 style="margin: 30px 0 15px; color: var(--text-secondary);">Dialpad</h3>
+                        <div class="dialpad">
+                            <button class="dialpad-btn" onclick="dialpadPress('1')">
+                                <span>1</span>
+                                <span class="dialpad-letters"></span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('2')">
+                                <span>2</span>
+                                <span class="dialpad-letters">ABC</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('3')">
+                                <span>3</span>
+                                <span class="dialpad-letters">DEF</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('4')">
+                                <span>4</span>
+                                <span class="dialpad-letters">GHI</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('5')">
+                                <span>5</span>
+                                <span class="dialpad-letters">JKL</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('6')">
+                                <span>6</span>
+                                <span class="dialpad-letters">MNO</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('7')">
+                                <span>7</span>
+                                <span class="dialpad-letters">PQRS</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('8')">
+                                <span>8</span>
+                                <span class="dialpad-letters">TUV</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('9')">
+                                <span>9</span>
+                                <span class="dialpad-letters">WXYZ</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('*')">
+                                <span>*</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('0')">
+                                <span>0</span>
+                                <span class="dialpad-letters">+</span>
+                            </button>
+                            <button class="dialpad-btn" onclick="dialpadPress('#')">
+                                <span>#</span>
+                            </button>
+                        </div>
+
+                        <!-- Call Actions -->
+                        <div class="call-actions">
+                            <button class="call-btn call-btn-backspace" onclick="dialpadBackspace()">
+                                ⌫
+                            </button>
+                            <button class="call-btn call-btn-call" onclick="makeCall()">
+                                📞
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                <h2 style="margin-top: 30px;">📋 Recent Calls</h2>
-                <div id="recentCallsList" class="calls-list">
-                    <p style="color: #666; text-align: center; padding: 40px;">No recent calls</p>
+                <!-- Active Call View -->
+                <div id="activeCallView" class="view">
+                    <div class="call-status">
+                        <div class="call-status-icon">📞</div>
+                        <div class="call-status-text" id="callStatusText">Connected</div>
+                        <div class="call-status-extension" id="callStatusExtension">6001</div>
+                        <div class="call-status-time" id="callTimer">00:00</div>
+                        
+                        <div class="call-controls">
+                            <button class="call-control-btn mute" onclick="toggleMute()" id="muteBtn">
+                                🎤
+                            </button>
+                            <button class="call-control-btn hangup" onclick="hangupCall()">
+                                📞
+                            </button>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- History View -->
+                <div id="historyView" class="view">
+                    <h2>Call History</h2>
+                    <div id="historyList" style="margin-top: 20px;">
+                        <p style="text-align: center; color: var(--text-tertiary); padding: 40px;">
+                            No call history yet
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Stats View -->
+                <div id="statsView" class="view">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Calls</div>
+                            <div class="stat-value">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Talk Time</div>
+                            <div class="stat-value">0m</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Avg Duration</div>
+                            <div class="stat-value">0m</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings View -->
+                <div id="settingsView" class="view">
+                    <h2>Settings</h2>
+                    <div style="margin-top: 20px;">
+                        <div class="form-group">
+                            <label class="form-label">Theme</label>
+                            <select class="form-input" onchange="setTheme(this.value)">
+                                <option value="light">Light</option>
+                                <option value="dark">Dark</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Incoming Call Modal -->
+    <div id="incomingCallModal" class="incoming-call-modal">
+        <div class="incoming-call-content">
+            <div class="incoming-call-avatar">📞</div>
+            <div class="incoming-call-title">Incoming Call</div>
+            <div class="incoming-call-from" id="incomingCallFrom">6000</div>
+            <div class="incoming-call-actions">
+                <button class="incoming-call-btn reject" onclick="rejectIncomingCall()">
+                    ✕
+                </button>
+                <button class="incoming-call-btn accept" onclick="acceptIncomingCall()">
+                    ✓
+                </button>
             </div>
         </div>
     </div>
 
+    <!-- Audio Elements -->
     <audio id="remoteAudio" autoplay></audio>
     <audio id="ringTone" loop>
-        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzGH0vPTgjMGHm7A7+OZSA0PVq3n77BdGAg+ltrywnETCShxy/LZizQGHWzA7+CbSQ0QVq3m77BdGAg+ltvywXETCShxyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh=" type="audio/wav">
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzGH0vPTgjMGHm7A7+OZSA0PVq3n77BdGAg+ltrywnETCShxy/LZizQGHm7A7+CbSQ0QVq3m77BdGAg+ltvywXETCShxyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh xyPLZizQGHW2/7+CbSQ0QVq3m77BdGAg+ltvywXETCSh=" type="audio/wav">
     </audio>
 
     <script>
+        // Global variables
         let userAgent = null;
         let currentSession = null;
+        let pendingInvitation = null;
         let agentExtension = null;
+        let isMuted = false;
+        let callStartTime = null;
+        let callTimer = null;
 
-        async function login() {
-            agentExtension = document.getElementById('agentExtension').value;
-            const password = document.getElementById('agentPassword').value;
-            const server = document.getElementById('server').value;
+        // Theme management
+        function toggleTheme() {
+            const currentTheme = document.body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            setTheme(newTheme);
+        }
+
+        function setTheme(theme) {
+            document.body.setAttribute('data-theme', theme);
+            document.getElementById('themeIcon').textContent = theme === 'light' ? '🌙' : '☀️';
+            localStorage.setItem('theme', theme);
+        }
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        setTheme(savedTheme);
+
+        // Navigation
+        function showView(viewName) {
+            // Hide all views
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            
+            // Show selected view
+            const viewMap = {
+                'dialer': 'dialerView',
+                'history': 'historyView',
+                'stats': 'statsView',
+                'settings': 'settingsView'
+            };
+            
+            document.getElementById(viewMap[viewName]).classList.add('active');
+            document.querySelector(`.nav-item[onclick="showView('${viewName}')"]`).classList.add('active');
+            
+            // Update title
+            const titles = {
+                'dialer': 'Dialer',
+                'history': 'Call History',
+                'stats': 'Statistics',
+                'settings': 'Settings'
+            };
+            document.getElementById('viewTitle').textContent = titles[viewName];
+        }
+
+        // Login
+        async function login(event) {
+            event.preventDefault();
+            
+            agentExtension = document.getElementById('loginExtension').value;
+            const password = document.getElementById('loginPassword').value;
+            const server = document.getElementById('loginServer').value;
 
             const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${window.location.hostname}`);
             const transportOptions = { server: server };
@@ -263,57 +1086,336 @@
             const userAgentOptions = {
                 authorizationUsername: agentExtension,
                 authorizationPassword: password,
-                transportOptions: transportOptions,
+                transportOptions: {
+                    server: server,
+                    // Add these:
+                    traceSip: true,
+                    connectionTimeout: 5
+                },
                 uri: uri,
-                delegate: {
-                    onInvite: handleIncomingCall,
-                    onConnect: () => {
-                        updateAgentStatus('online');
-                        document.getElementById('loginSection').classList.add('hidden');
-                        document.getElementById('statusSection').classList.remove('hidden');
-                        loadAgentInfo();
+                // Add session description handler options
+                sessionDescriptionHandlerFactoryOptions: {
+                    peerConnectionOptions: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' }
+                        ]
                     }
+                },
+                contactName: agentExtension,  // Use extension instead of random string
+                hackIpInContact: true,  // Let SIP.js fix Contact header
+                delegate: {
+                    onInvite: handleIncomingCall
                 }
             };
 
             userAgent = new SIP.UserAgent(userAgentOptions);
             const registerer = new SIP.Registerer(userAgent);
 
-            try {
-                await userAgent.start();
-                await registerer.register();
-            } catch (error) {
-                alert('Login failed: ' + error.message);
+            // Add invitation listener (for incoming calls)
+            userAgent.delegate = {
+                onInvite: (invitation) => {
+                    console.log('===== INCOMING CALL DETECTED =====');
+                    console.log('Invitation object:', invitation);
+                    
+                    // CRITICAL: Clean the SDP in the incoming INVITE message BEFORE SIP.js processes it
+                    if (invitation.incomingInviteRequest && invitation.incomingInviteRequest.message) {
+                        const message = invitation.incomingInviteRequest.message;
+                        if (message.body && typeof message.body === 'string') {
+                            console.log('Cleaning SDP in INVITE message body');
+                            const originalSdp = message.body;
+                            const msidLinesBefore = (originalSdp.match(/^a=msid:/gm) || []).length;
+                            console.log('INVITE SDP - MSID lines before:', msidLinesBefore);
+                            
+                            const lines = originalSdp.split('\r\n');
+                            const seenMsids = new Set();
+                            const filteredLines = [];
+                            
+                            for (const line of lines) {
+                                if (line.startsWith('a=msid:')) {
+                                    if (seenMsids.has(line)) {
+                                        console.log('INVITE - Removing duplicate:', line);
+                                        continue;
+                                    }
+                                    seenMsids.add(line);
+                                }
+                                filteredLines.push(line);
+                            }
+                            
+                            message.body = filteredLines.join('\r\n');
+                            const msidLinesAfter = (message.body.match(/^a=msid:/gm) || []).length;
+                            console.log('INVITE SDP - MSID lines after:', msidLinesAfter);
+                        }
+                    }
+                    
+                    handleIncomingCall(invitation);
+                }
+            };
+
+            console.log('Starting UserAgent...');
+            await userAgent.start();
+            console.log('UserAgent started');
+            
+            console.log('Registering...');
+            await registerer.register();
+            console.log('Registered successfully');
+
+            // Update UI
+            document.getElementById('loginView').classList.remove('active');
+            document.getElementById('dialerView').classList.add('active');
+            document.getElementById('agentExt').textContent = agentExtension;
+            document.getElementById('agentStatus').textContent = 'Online';
+            document.getElementById('statusText').textContent = 'Online';
+            document.getElementById('connectionStatus').className = 'status-badge online';
+
+            console.log('Agent logged in:', agentExtension);
+        }
+
+        // Logout
+        function logout() {
+            if (userAgent) {
+                userAgent.stop();
+            }
+            
+            // Reset UI
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('loginView').classList.add('active');
+            document.getElementById('statusText').textContent = 'Offline';
+            document.getElementById('connectionStatus').className = 'status-badge offline';
+            document.getElementById('agentStatus').textContent = 'Offline';
+            
+            agentExtension = null;
+        }
+
+        // Dialer functions
+        function dialpadPress(digit) {
+            const input = document.getElementById('dialerInput');
+            input.value += digit;
+        }
+
+        function dialpadBackspace() {
+            const input = document.getElementById('dialerInput');
+            input.value = input.value.slice(0, -1);
+        }
+
+        function quickDial(extension) {
+            document.getElementById('dialerInput').value = extension;
+            makeCall();
+        }
+
+        // Make call
+        async function makeCall() {
+            const extension = document.getElementById('dialerInput').value;
+            if (!extension) {
+                alert('Please enter an extension');
+                return;
+            }
+
+            console.log('Making call to:', extension);
+
+            const target = SIP.UserAgent.makeURI(`sip:${extension}@${window.location.hostname}`);
+            const inviter = new SIP.Inviter(userAgent, target);
+
+            const inviterOptions = {
+                sessionDescriptionHandlerOptions: {
+                    constraints: { audio: true, video: false }
+                }
+            };
+
+            // Send INVITE
+            await inviter.invite(inviterOptions);
+            currentSession = inviter;
+
+            // Show active call view
+            document.getElementById('dialerView').classList.remove('active');
+            document.getElementById('activeCallView').classList.add('active');
+            document.getElementById('callStatusExtension').textContent = extension;
+            document.getElementById('callStatusText').textContent = 'Calling...';
+
+            // Handle session state changes
+            inviter.stateChange.addListener((state) => {
+                console.log('Call state:', state);
+                
+                if (state === SIP.SessionState.Established) {
+                    document.getElementById('callStatusText').textContent = 'Connected';
+                    startCallTimer();
+                    
+                    // Setup audio
+                    const remoteAudio = document.getElementById('remoteAudio');
+                    const remoteStream = new MediaStream();
+                    const pc = inviter.sessionDescriptionHandler.peerConnection;
+                    
+                    pc.getReceivers().forEach((receiver) => {
+                        if (receiver.track) {
+                            remoteStream.addTrack(receiver.track);
+                        }
+                    });
+                    
+                    remoteAudio.srcObject = remoteStream;
+                    remoteAudio.play();
+                    
+                } else if (state === SIP.SessionState.Terminated) {
+                    endCall();
+                }
+            });
+        }
+
+        // Incoming call handling
+        function handleIncomingCall(invitation) {
+            console.log('===== handleIncomingCall CALLED =====');
+            console.log('Incoming call received:', invitation);
+            console.log('Remote identity:', invitation.remoteIdentity);
+            
+            pendingInvitation = invitation;
+            const from = invitation.remoteIdentity.uri.user || 'Unknown';
+            
+            console.log('Caller extension:', from);
+            
+            // Show modal
+            const modal = document.getElementById('incomingCallModal');
+            const fromElement = document.getElementById('incomingCallFrom');
+            
+            fromElement.textContent = from;
+            modal.classList.add('active');
+            
+            // Play ring tone
+            const ringTone = document.getElementById('ringTone');
+            ringTone.play().catch(err => console.error('Ring tone error:', err));
+            
+            // Handle if call is canceled
+            invitation.stateChange.addListener((state) => {
+                if (state === SIP.SessionState.Terminated) {
+                    hideIncomingCallModal();
+                    ringTone.pause();
+                    ringTone.currentTime = 0;
+                }
+            });
+        }
+
+        // DEBUG: Test function to manually show modal
+        function testIncomingModal() {
+            console.log('Testing incoming call modal...');
+            document.getElementById('incomingCallFrom').textContent = 'TEST';
+            document.getElementById('incomingCallModal').classList.add('active');
+            document.getElementById('ringTone').play();
+        }
+        window.testIncomingModal = testIncomingModal; // Expose for console testing
+
+        function acceptIncomingCall() {
+            console.log('Accepting call');
+            if (pendingInvitation) {
+                const ringTone = document.getElementById('ringTone');
+                ringTone.pause();
+                ringTone.currentTime = 0;
+                
+                hideIncomingCallModal();
+                answerCall(pendingInvitation);
             }
         }
 
-        function handleIncomingCall(invitation) {
-            const ringTone = document.getElementById('ringTone');
-            ringTone.play();
-
-            currentSession = invitation;
-            const from = invitation.remoteIdentity.uri.user;
-
-            if (confirm(`Incoming call from ${from}. Accept?`)) {
+        function rejectIncomingCall() {
+            console.log('Rejecting call');
+            if (pendingInvitation) {
+                const ringTone = document.getElementById('ringTone');
                 ringTone.pause();
-                answerCall(invitation);
-            } else {
-                ringTone.pause();
-                invitation.reject();
+                ringTone.currentTime = 0;
+                
+                pendingInvitation.reject();
+                hideIncomingCallModal();
+                pendingInvitation = null;
             }
+        }
+
+        function hideIncomingCallModal() {
+            document.getElementById('incomingCallModal').classList.remove('active');
         }
 
         async function answerCall(session) {
-            const remoteAudio = document.getElementById('remoteAudio');
-            const remoteStream = new MediaStream();
-
+            currentSession = session;
+            
+            // Patch at the session level BEFORE accepting
+            session.delegate = {
+                onSessionDescriptionHandler: (sessionDescriptionHandler) => {
+                    console.log('=== Session description handler created ===');
+                    
+                    // Wait for peerConnection to be created, then patch it
+                    const checkAndPatch = () => {
+                        if (sessionDescriptionHandler.peerConnection && !sessionDescriptionHandler.peerConnection._patched) {
+                            console.log('=== Patching RTCPeerConnection.setRemoteDescription ===');
+                            const pc = sessionDescriptionHandler.peerConnection;
+                            const originalSetRemote = pc.setRemoteDescription.bind(pc);
+                            
+                            pc.setRemoteDescription = async function(description) {
+                                console.log('RTCPeerConnection.setRemoteDescription called');
+                                console.log('Description type:', description.type);
+                                
+                                if (description && description.sdp) {
+                                    const msidBefore = (description.sdp.match(/^a=msid:/gm) || []).length;
+                                    console.log('PC: MSID lines before:', msidBefore);
+                                    
+                                    const lines = description.sdp.split('\r\n');
+                                    const seenMsids = new Set();
+                                    const filteredLines = [];
+                                    
+                                    for (const line of lines) {
+                                        if (line.startsWith('a=msid:')) {
+                                            if (seenMsids.has(line)) {
+                                                console.log('PC: REMOVING DUPLICATE:', line);
+                                                continue;
+                                            }
+                                            seenMsids.add(line);
+                                        }
+                                        filteredLines.push(line);
+                                    }
+                                    
+                                    const cleanedSdp = filteredLines.join('\r\n');
+                                    const msidAfter = (cleanedSdp.match(/^a=msid:/gm) || []).length;
+                                    console.log('PC: MSID lines after:', msidAfter);
+                                    
+                                    // Create new description with cleaned SDP
+                                    const cleanedDesc = {
+                                        type: description.type,
+                                        sdp: cleanedSdp
+                                    };
+                                    
+                                    console.log('PC: Calling original with cleaned description');
+                                    return originalSetRemote.call(this, cleanedDesc);
+                                }
+                                
+                                return originalSetRemote.call(this, description);
+                            };
+                            
+                            pc._patched = true;
+                            console.log('=== RTCPeerConnection patched successfully ===');
+                        } else if (!sessionDescriptionHandler.peerConnection) {
+                            // PeerConnection not created yet, try again soon
+                            setTimeout(checkAndPatch, 10);
+                        }
+                    };
+                    
+                    checkAndPatch();
+                }
+            };
+            
             await session.accept({
                 sessionDescriptionHandlerOptions: {
                     constraints: { audio: true, video: false }
                 }
             });
 
+            // Show active call view
+            const from = session.remoteIdentity.uri.user;
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById('activeCallView').classList.add('active');
+            document.getElementById('callStatusExtension').textContent = from;
+            document.getElementById('callStatusText').textContent = 'Connected';
+            
+            startCallTimer();
+
+            // Setup audio
+            const remoteAudio = document.getElementById('remoteAudio');
+            const remoteStream = new MediaStream();
             const pc = session.sessionDescriptionHandler.peerConnection;
+            
             pc.getReceivers().forEach((receiver) => {
                 if (receiver.track) {
                     remoteStream.addTrack(receiver.track);
@@ -323,118 +1425,71 @@
             remoteAudio.srcObject = remoteStream;
             remoteAudio.play();
 
-            updateActiveCallsList();
-        }
-
-        function changeStatus() {
-            const status = document.getElementById('statusSelect').value;
-            updateAgentStatus(status);
-            
-            // Send status update to backend
-            fetch('/api/admin/agents/' + agentExtension + '/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: status })
+            // Handle session end
+            session.stateChange.addListener((state) => {
+                if (state === SIP.SessionState.Terminated) {
+                    endCall();
+                }
             });
         }
 
-        function updateAgentStatus(status) {
-            const statusEl = document.getElementById('agentStatus');
-            statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-            statusEl.className = `status-indicator status-${status}`;
-        }
-
-        function logout() {
-            if (userAgent) {
-                userAgent.stop();
+        // Call controls
+        function hangupCall() {
+            if (currentSession) {
+                currentSession.bye();
             }
-            document.getElementById('loginSection').classList.remove('hidden');
-            document.getElementById('statusSection').classList.add('hidden');
-            updateAgentStatus('offline');
+            endCall();
         }
 
-        async function loadAgentInfo() {
-            try {
-                const res = await fetch('/api/admin/agents');
-                const agents = await res.json();
-                const agent = agents.find(a => a.extension === agentExtension);
-                
-                if (agent) {
-                    document.getElementById('agentExtInfo').textContent = agent.extension;
-                    document.getElementById('agentNameInfo').textContent = agent.name;
-                    document.getElementById('agentCallsInfo').textContent = agent.total_calls;
+        function toggleMute() {
+            if (!currentSession) return;
+            
+            isMuted = !isMuted;
+            const pc = currentSession.sessionDescriptionHandler.peerConnection;
+            
+            pc.getSenders().forEach((sender) => {
+                if (sender.track && sender.track.kind === 'audio') {
+                    sender.track.enabled = !isMuted;
                 }
-            } catch (err) {
-                console.error('Failed to load agent info:', err);
-            }
+            });
+            
+            document.getElementById('muteBtn').textContent = isMuted ? '🔇' : '🎤';
         }
 
-        async function updateActiveCallsList() {
-            try {
-                const res = await fetch('/api/admin/calls/active');
-                const calls = await res.json();
-                
-                document.getElementById('activeCalls').textContent = calls.length;
-                
-                const listEl = document.getElementById('activeCallsList');
-                if (calls.length === 0) {
-                    listEl.innerHTML = '<p style="color: #666; text-align: center; padding: 40px;">No active calls</p>';
-                } else {
-                    listEl.innerHTML = calls.map(call => `
-                        <div class="call-item">
-                            <div class="info">
-                                <p><strong>From:</strong> ${call.customer_number}</p>
-                                <p><strong>Agent:</strong> ${call.agent_name || 'Unassigned'}</p>
-                                <p><strong>Status:</strong> ${call.status}</p>
-                            </div>
-                        </div>
-                    `).join('');
-                }
-            } catch (err) {
-                console.error('Failed to update calls list:', err);
-            }
+        function startCallTimer() {
+            callStartTime = Date.now();
+            callTimer = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                document.getElementById('callTimer').textContent = 
+                    `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            }, 1000);
         }
 
-        async function loadRecentCalls() {
-            try {
-                const res = await fetch('/api/admin/calls/history?limit=10');
-                const calls = await res.json();
-                
-                document.getElementById('callsToday').textContent = calls.filter(c => {
-                    const today = new Date().toDateString();
-                    const callDate = new Date(c.start_time).toDateString();
-                    return today === callDate;
-                }).length;
-                
-                const listEl = document.getElementById('recentCallsList');
-                if (calls.length === 0) {
-                    listEl.innerHTML = '<p style="color: #666; text-align: center; padding: 40px;">No recent calls</p>';
-                } else {
-                    listEl.innerHTML = calls.slice(0, 5).map(call => `
-                        <div class="call-item">
-                            <div class="info">
-                                <p><strong>From:</strong> ${call.from_number}</p>
-                                <p><strong>To:</strong> ${call.to_number}</p>
-                                <p><strong>Duration:</strong> ${call.duration || 0}s</p>
-                                <p><strong>Status:</strong> ${call.status}</p>
-                            </div>
-                        </div>
-                    `).join('');
-                }
-            } catch (err) {
-                console.error('Failed to load recent calls:', err);
+        function endCall() {
+            if (callTimer) {
+                clearInterval(callTimer);
+                callTimer = null;
             }
+            
+            currentSession = null;
+            isMuted = false;
+            
+            // Return to dialer
+            document.getElementById('activeCallView').classList.remove('active');
+            document.getElementById('dialerView').classList.add('active');
+            document.getElementById('dialerInput').value = '';
         }
 
-        // Auto-refresh
-        setInterval(() => {
-            if (userAgent && userAgent.isConnected()) {
-                updateActiveCallsList();
-                loadRecentCalls();
-            }
-        }, 5000);
-
-        loadRecentCalls();
+        // Initialize
+        console.log('Agent Console loaded');
+        
+        // Set WebSocket server URL based on page protocol
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+        document.getElementById('loginServer').value = wsUrl;
+        console.log('WebSocket URL:', wsUrl);
     </script>
 </body>
 </html>
