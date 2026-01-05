@@ -73,8 +73,14 @@ services:
 
   # RTPEngine Media Proxy
   rtpengine:
-    image: drachtio/rtpengine:latest
-    platform: linux/amd64
+    #image: drachtio/rtpengine:latest
+    build:
+      context: ./rtpengine
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64      
+    #platform: linux/arm64
     container_name: voip-rtpengine
     privileged: true
     cap_add:

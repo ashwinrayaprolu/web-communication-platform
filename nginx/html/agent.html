@@ -1416,6 +1416,26 @@
             const remoteStream = new MediaStream();
             const pc = session.sessionDescriptionHandler.peerConnection;
             
+            // ADD: Monitor ICE connection state
+            pc.oniceconnectionstatechange = () => {
+                console.log('ICE Connection State:', pc.iceConnectionState);
+                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                    console.error('ICE connection failed/disconnected');
+                }
+            };
+            // ADD: Monitor connection state
+            pc.onconnectionstatechange = () => {
+                console.log('Connection State:', pc.connectionState);
+            };
+            
+            // ADD: Log when tracks are received
+            pc.ontrack = (event) => {
+                console.log('Track received:', event.track);
+                console.log('Track kind:', event.track.kind);
+                console.log('Track enabled:', event.track.enabled);
+                console.log('Track muted:', event.track.muted);
+            };            
+
             pc.getReceivers().forEach((receiver) => {
                 if (receiver.track) {
                     remoteStream.addTrack(receiver.track);
@@ -1423,7 +1443,17 @@
             });
 
             remoteAudio.srcObject = remoteStream;
-            remoteAudio.play();
+            remoteAudio.play().catch(err => {
+                console.error('Error playing audio:', err);
+            });
+
+            // ADD: Log audio element state
+            console.log('Remote audio element:', {
+                srcObject: remoteAudio.srcObject,
+                paused: remoteAudio.paused,
+                volume: remoteAudio.volume,
+                muted: remoteAudio.muted
+            });            
 
             // Handle session end
             session.stateChange.addListener((state) => {
